@@ -45,32 +45,11 @@ function Classifier.Evaluate(ctx)
         result.buyerHits[key] = weight
     end
 
-    -- Hard vetoes. No scoring, no appeal.
-    if ctx.blocked then
-        result.verdict = "vetoed"
-        result.reason = ctx.blocked
-        return result
-    end
-
-    if ctx.playerState and ctx.playerState.neverInvite then
-        result.verdict = "vetoed"
-        result.reason = "never invite"
-        return result
-    end
-
-    if ctx.playerState and ctx.playerState.flaggedSeller then
-        result.verdict = "vetoed"
-        result.reason = "flagged seller"
-        return result
-    end
-
-    for _, word in ipairs(filter.vetoWords) do
-        if Util.HasPhrase(ctx.norm, word) then
-            result.verdict = "vetoed"
-            result.reason = word
-            return result
-        end
-    end
+    -- Operational state ("invites off", "cooldown", "group full") is recorded
+    -- but must NOT decide the content verdict. Conflating them meant that with
+    -- invites disabled every message returned "invites disabled" and nothing
+    -- was ever scored, so the addon could not explain itself while idle.
+    result.blocked = ctx.blocked
 
     if not ctx.matched or #ctx.matched == 0 then
         result.verdict = "lowscore"
@@ -113,6 +92,28 @@ function Classifier.Evaluate(ctx)
     end
 
     if hasQuestion then buyer("question", QUESTION_WEIGHT) end
+
+    -- Content vetoes are applied after scoring so the log still shows which
+    -- signals were present, rather than an unexplained rejection.
+    if ctx.playerState and ctx.playerState.neverInvite then
+        result.verdict = "vetoed"
+        result.reason = "never invite"
+        return result
+    end
+
+    if ctx.playerState and ctx.playerState.flaggedSeller then
+        result.verdict = "vetoed"
+        result.reason = "flagged seller"
+        return result
+    end
+
+    for _, word in ipairs(filter.vetoWords) do
+        if Util.HasPhrase(ctx.norm, word) then
+            result.verdict = "vetoed"
+            result.reason = word
+            return result
+        end
+    end
 
     -- Net, not raw. A raw seller threshold would make buyer evidence
     -- decorative and any heavy signal an unconditional block.

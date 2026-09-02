@@ -334,10 +334,19 @@ T.Case("Classifier vetoes a previously flagged seller", function()
     T.Eq(r.reason, "flagged seller", "reason")
 end)
 
-T.Case("Classifier honours a caller supplied block", function()
+T.Case("Classifier reports an operational block without changing the verdict", function()
+    -- Operational state must not decide content, or the addon cannot explain
+    -- why it would have invited someone while invites are switched off.
     local r = classify("WTB bold ruby have mats", { blocked = "cooldown" })
+    T.Eq(r.verdict, "invite", "content verdict still computed")
+    T.Eq(r.blocked, "cooldown", "block reported separately")
+    T.Eq(r.buyerScore > 0, true, "still scored")
+end)
+
+T.Case("Classifier still scores a vetoed message", function()
+    local r = classify("WTS " .. RUBY_LINK .. " all cuts 5g")
     T.Eq(r.verdict, "vetoed", "verdict")
-    T.Eq(r.reason, "cooldown", "reason")
+    T.Eq(r.sellerHits["all cuts"], 3, "signals recorded despite the veto")
 end)
 
 T.Case("Classifier does not fire without a gem match", function()
@@ -348,4 +357,42 @@ end)
 
 T.Case("Classifier does not match boldly as a gem", function()
     T.Eq(classify("boldly going where no one has gone before").reason, "no gem match", "reason")
+end)
+
+T.Case("Log.Push caps the buffer at 100 entries", function()
+    local log = {}
+    for i = 1, 120 do ns.Log.Push(log, { id = i }) end
+    T.Eq(#log, 100, "capped")
+    T.Eq(log[1].id, 120, "newest first")
+    T.Eq(log[100].id, 21, "oldest retained")
+end)
+
+T.Case("Log.Describe summarises a verdict", function()
+    local line = ns.Log.Describe({
+        player = "Bob", verdict = "vetoed", reason = "lfw",
+        sellerScore = 0, buyerScore = 0, msg = "JC LFW",
+    })
+    T.Eq(line:find("Bob", 1, true) ~= nil, true, "names the player")
+    T.Eq(line:find("lfw", 1, true) ~= nil, true, "gives the reason")
+end)
+
+T.Case("BlockReason reports the invite cooldown", function()
+    local s = ns.DeepCopy(ns.Defaults.settings.invite)
+    T.Eq(ns.Inviter.BlockReason({ lastInviteAt = 1000 }, 1100, 1, s), "cooldown", "reason")
+end)
+
+T.Case("BlockReason clears once the cooldown expires", function()
+    local s = ns.DeepCopy(ns.Defaults.settings.invite)
+    T.Eq(ns.Inviter.BlockReason({ lastInviteAt = 1000 }, 2000, 1, s), nil, "cleared")
+end)
+
+T.Case("BlockReason reports a full group", function()
+    local s = ns.DeepCopy(ns.Defaults.settings.invite)
+    T.Eq(ns.Inviter.BlockReason({}, 5000, 5, s), "group full", "reason")
+end)
+
+T.Case("BlockReason reports auto invite disabled", function()
+    local s = ns.DeepCopy(ns.Defaults.settings.invite)
+    s.enabled = false
+    T.Eq(ns.Inviter.BlockReason({}, 5000, 1, s), "invites disabled", "reason")
 end)

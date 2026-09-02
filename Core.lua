@@ -2,8 +2,17 @@ local addonName, ns = ...
 
 ns.Util = ns.Util or {}
 
+-- Output goes straight into a chat frame rather than through the chat event
+-- system, so it has no message type and the chat settings UI cannot route it.
+-- Picking the target frame here is the only way to move it. See /cm out.
 function ns.Print(msg)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff33ff99CutMaster|r: " .. tostring(msg))
+    local frame = DEFAULT_CHAT_FRAME
+    local idx = ns.db and ns.db.settings and ns.db.settings.outputFrame
+    if idx and idx > 1 then
+        local f = _G["ChatFrame" .. idx]
+        if f and f.AddMessage then frame = f end
+    end
+    frame:AddMessage("|cff33ff99CutMaster|r: " .. tostring(msg))
 end
 
 function ns.DeepCopy(t)
@@ -35,6 +44,7 @@ ns.Defaults = {
     bookDirty = false,
     players = {},
     log = {},
+    capture = {},
     settings = {
         bark = {
             enabled = false,
@@ -83,6 +93,8 @@ ns.Defaults = {
         scan = {
             autoStaleSec = 21600,
         },
+        captureAll = false,
+        outputFrame = 1,
         debug = false,
     },
 }
@@ -92,6 +104,7 @@ frame:RegisterEvent("ADDON_LOADED")
 frame:RegisterEvent("SKILL_LINES_CHANGED")
 frame:RegisterEvent("TRADE_SKILL_SHOW")
 frame:RegisterEvent("TRADE_SKILL_CLOSE")
+frame:RegisterEvent("CHAT_MSG_CHANNEL")
 frame:SetScript("OnEvent", function(self, event, ...)
     local arg1 = ...
     if event == "ADDON_LOADED" and arg1 == addonName then
@@ -117,6 +130,11 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end)
     elseif event == "TRADE_SKILL_CLOSE" then
         ns.Scanner.initiatedByUs = false
+    elseif event == "CHAT_MSG_CHANNEL" then
+        local text, author, _, _, _, _, _, _, channelName = ...
+        if channelName and channelName:find("Trade", 1, true) then
+            ns.Events.OnTradeMessage(text, author)
+        end
     end
 end)
 ns.frame = frame
@@ -160,8 +178,92 @@ local function HandleSlash(input)
                 e and (e.link or e.name) or h.itemID, h.tier,
                 h.qtyHint and (", qty " .. h.qtyHint) or ""))
         end
+    elseif cmd == "invite" then
+        local s = ns.db.settings.invite
+        s.enabled = not s.enabled
+        ns.Print("auto invite " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
+    elseif cmd == "debug" then
+        ns.db.settings.debug = not ns.db.settings.debug
+        ns.Print("debug " .. (ns.db.settings.debug and "on" or "off"))
+    elseif cmd == "capture" then
+        local s = ns.db.settings
+        s.captureAll = not s.captureAll
+        if s.captureAll then
+            ns.Print("capture |cff44ff44on|r. Recording every Trade message, "
+                .. "matched or not. Run /reload to flush it to disk.")
+        else
+            ns.Print(string.format("capture |cffff4444off|r. %d messages held.",
+                #(ns.db.capture or {})))
+        end
+    elseif cmd == "status" then
+        local s = ns.db.settings
+        local function onoff(v)
+            return v and "|cff44ff44on|r" or "|cffff4444off|r"
+        end
+        local n, gems = BookCounts()
+        local age = ns.db.bookScannedAt > 0
+            and math.floor(((GetServerTime and GetServerTime() or time())
+                - ns.db.bookScannedAt) / 60) or -1
+        ns.Print(string.format("auto invite %s   barking %s   capture %s   debug %s",
+            onoff(s.invite.enabled), onoff(s.bark.enabled),
+            onoff(s.captureAll), onoff(s.debug)))
+        ns.Print(string.format("book: %d recipes (%d gems), scanned %s",
+            n, gems, age >= 0 and (age .. " min ago") or "never"))
+        ns.Print(string.format("log: %d entries   capture: %d messages",
+            #ns.db.log, #(ns.db.capture or {})))
+    elseif cmd == "out" then
+        if rest == "" then
+            ns.Print("chat windows:")
+            for i = 1, NUM_CHAT_WINDOWS do
+                local name = GetChatWindowInfo(i)
+                if name and name ~= "" then
+                    ns.Print(string.format("  %d = %s%s", i, name,
+                        ns.db.settings.outputFrame == i and "  |cff44ff44(current)|r" or ""))
+                end
+            end
+            ns.Print("usage: /cm out <number>")
+        else
+            local n = tonumber(rest)
+            if n and _G["ChatFrame" .. n] then
+                ns.db.settings.outputFrame = n
+                ns.Print("CutMaster output now prints here.")
+            else
+                ns.Print("no such chat window. Run /cm out to list them.")
+            end
+        end
+    elseif cmd == "clearcapture" then
+        ns.db.capture = {}
+        ns.Print("capture cleared.")
+    elseif cmd == "clearflags" then
+        local n = 0
+        for _, st in pairs(ns.db.players) do
+            if st.flaggedSeller then st.flaggedSeller = nil; n = n + 1 end
+        end
+        ns.Print(string.format("cleared the auto seller flag on %d players.", n))
+    elseif cmd == "log" then
+        local entries = ns.Log.Recent(10)
+        if #entries == 0 then
+            ns.Print("log is empty.")
+        end
+        for i = #entries, 1, -1 do
+            ns.Print(ns.Log.Describe(entries[i]))
+            ns.Print(ns.Log.DescribeHits(entries[i]))
+        end
+    elseif cmd == "try" then
+        if rest == "" then
+            ns.Print("usage: /cm try <a trade chat message>")
+            return
+        end
+        local r = ns.Events.OnTradeMessage(rest, "TestDummy", { dryRun = true })
+        if r then
+            ns.Print(string.format("verdict |cffffffff%s|r (%s), seller %d buyer %d net %d",
+                r.verdict, r.reason, r.sellerScore or 0, r.buyerScore or 0, r.netScore or 0))
+            ns.Print(ns.Log.DescribeHits(r))
+        end
     else
-        ns.Print("Commands: /cm scan, /cm book, /cm match <text>, /cm test")
+        ns.Print("Commands: /cm scan, /cm book, /cm match <text>, /cm try <message>,")
+        ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
+        ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test")
     end
 end
 

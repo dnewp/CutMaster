@@ -12,4 +12,7 @@ Scanner.lua
 Matcher.lua
 Players.lua
 Classifier.lua
+Log.lua
+Inviter.lua
+Events.lua
 Tests.lua
