@@ -21,6 +21,9 @@ Log.lua
 Inviter.lua
 Events.lua
 Barker.lua
+Orders.lua
+Ledger.lua
+Trade.lua
 UI.lua
 Minimap.lua
 Tests.lua

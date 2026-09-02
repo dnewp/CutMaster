@@ -45,6 +45,9 @@ ns.Defaults = {
     players = {},
     log = {},
     capture = {},
+    orders = {},
+    nextOrderID = 1,
+    ledger = { entries = {}, allTimeCopper = 0, allTimeGems = 0 },
     settings = {
         bark = {
             enabled = false,
@@ -63,8 +66,20 @@ ns.Defaults = {
             fromWhisper = true,
             whisper = {
                 enabled = true,
-                template = "Invited you for {gem}, accept and trade me the mats + tip!",
+                autoReply = true,
+                autoSuggest = false,
+                -- They named a gem we can cut.
+                template = "Invited you for {gem}! Accept and trade me the mats.",
+                -- They asked for a jeweller without naming anything.
+                templateNoGem = "Hey! What cut do you need? Link the gem or name it "
+                    .. "and I'll tell you if I have it.",
+                -- They answered our question with a cut we have.
+                confirmTemplate = "Yep, I can do {gem}. Trade me the mats and "
+                    .. "I'll get it cut.",
+                -- They named a cut we do not have, but we know that gem family.
+                suggestTemplate = "I don't have that exact cut, but I can do: {gems}",
                 cooldownSec = 600,
+                replyCooldownSec = 10,
             },
         },
         filter = {
@@ -103,6 +118,16 @@ ns.Defaults = {
         scan = {
             autoStaleSec = 21600,
         },
+        orders = {
+            autoFromInvite = true,
+            autoFromWhisper = true,
+            autoFromParty = true,
+            captureTranscript = true,
+            autoAdvanceMats = true,
+            autoFillTrade = true,
+            promptOnDone = true,
+            keepDoneDays = 30,
+        },
         captureAll = false,
         outputFrame = 1,
         minimap = { hide = false },
@@ -117,6 +142,14 @@ frame:RegisterEvent("TRADE_SKILL_SHOW")
 frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:RegisterEvent("CHAT_MSG_CHANNEL")
 frame:RegisterEvent("CHAT_MSG_WHISPER")
+frame:RegisterEvent("CHAT_MSG_RAID_LEADER")
+frame:RegisterEvent("CHAT_MSG_RAID")
+frame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
+frame:RegisterEvent("CHAT_MSG_PARTY")
+frame:RegisterEvent("CHAT_MSG_WHISPER_INFORM")
+frame:RegisterEvent("TRADE_CLOSED")
+frame:RegisterEvent("TRADE_ACCEPT_UPDATE")
+frame:RegisterEvent("TRADE_SHOW")
 frame:SetScript("OnEvent", function(self, event, ...)
     local arg1 = ...
     if event == "ADDON_LOADED" and arg1 == addonName then
@@ -152,6 +185,19 @@ frame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "CHAT_MSG_WHISPER" then
         local text, author = ...
         ns.Events.OnWhisper(text, author)
+    elseif event == "CHAT_MSG_PARTY" or event == "CHAT_MSG_PARTY_LEADER"
+        or event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER" then
+        local text, author = ...
+        ns.Events.OnParty(text, author)
+    elseif event == "CHAT_MSG_WHISPER_INFORM" then
+        local text, target = ...
+        if ns.db.settings.orders.captureTranscript then
+            ns.Orders.AddTranscript(target, "out", text,
+                GetServerTime and GetServerTime() or time())
+        end
+    elseif event == "TRADE_SHOW" or event == "TRADE_ACCEPT_UPDATE"
+        or event == "TRADE_CLOSED" then
+        ns.Trade.OnEvent(event, ...)
     end
 end)
 ns.frame = frame
@@ -219,6 +265,53 @@ local function HandleSlash(input)
             ns.Print("barking " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
             if s.enabled then ns.Barker.Start(true) else ns.Barker.Stop() end
         end
+    elseif cmd == "orders" then
+        local open = ns.Orders.OpenList()
+        if #open == 0 then
+            ns.Print("no open orders.")
+        end
+        for _, o in ipairs(open) do
+            ns.Print(string.format("|cffffffff#%d|r %s [%s]%s  %s",
+                o.id, o.player, o.status,
+                o.needsSplit and " |cffff9900SPLIT?|r" or "",
+                ns.Orders.Summarise(o)))
+            if (o.copperIn or 0) > 0 then
+                ns.Print("    paid " .. ns.Ledger.Money(o.copperIn))
+            end
+        end
+    elseif cmd == "order" then
+        local sub, arg = rest:match("^(%S*)%s*(.*)$")
+        sub = (sub or ""):lower()
+        local now = GetServerTime and GetServerTime() or time()
+        if sub == "add" and arg ~= "" then
+            local o = ns.Orders.Create(arg, "manual", "", {}, now)
+            ns.Print(string.format("order #%d opened for %s. "
+                .. "Trade them the mats and it will fill itself in.", o.id, arg))
+        elseif sub == "done" then
+            local id = tonumber(arg)
+            for _, o in ipairs(ns.db.orders) do
+                if o.id == id then
+                    ns.Orders.SetStatus(o, "done", now)
+                    ns.Print(string.format("order #%d closed.", id))
+                    return
+                end
+            end
+            ns.Print("no order with that id.")
+        elseif sub == "cancel" then
+            local id = tonumber(arg)
+            for _, o in ipairs(ns.db.orders) do
+                if o.id == id then
+                    ns.Orders.SetStatus(o, "cancelled", now)
+                    ns.Print(string.format("order #%d cancelled.", id))
+                    return
+                end
+            end
+            ns.Print("no order with that id.")
+        else
+            ns.Print("usage: /cm order add <player> | done <id> | cancel <id>")
+        end
+    elseif cmd == "income" then
+        ns.Ledger.Report()
     elseif cmd == "adv" then
         local book = ns.db.book
         local sub = rest:lower()
@@ -249,6 +342,16 @@ local function HandleSlash(input)
         else
             ns.Print(string.format("next bark (%d gems, %d chars):", used, #msg))
             ns.Print("  " .. msg)
+        end
+    elseif cmd == "tryparty" then
+        if rest == "" then
+            ns.Print("usage: /cm tryparty <a party chat message>")
+            return
+        end
+        local r = ns.Events.OnParty(rest, "TestDummy", { dryRun = true })
+        if r then
+            ns.Print(string.format("verdict |cffffffff%s|r (%s), seller %d buyer %d",
+                r.verdict, r.reason, r.sellerScore or 0, r.buyerScore or 0))
         end
     elseif cmd == "trywhisper" then
         if rest == "" then
@@ -344,9 +447,11 @@ local function HandleSlash(input)
     else
         ns.Print("Commands: /cm (open window), /cm scan, /cm book, /cm match <text>,")
         ns.Print("  /cm try <msg>,")
-        ns.Print("  /cm trywhisper <msg>, /cm bark [secs], /cm send, /cm preview,")
+        ns.Print("  /cm trywhisper <msg>, /cm tryparty <msg>, /cm bark [secs],")
+        ns.Print("  /cm send, /cm preview,")
         ns.Print("  /cm adv rare|all|none|+text|-text,")
         ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
+        ns.Print("  /cm orders, /cm order add|done|cancel, /cm income,")
         ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test")
     end
 end

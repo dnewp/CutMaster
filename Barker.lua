@@ -38,10 +38,22 @@ function Barker.Fit(entries, cursor, template, maxLen, perBark)
     return msg, idx, used
 end
 
+-- Books scanned before bindType was captured have no idea what is soulbound.
+-- Rather than depend on the user rescanning, fill it in from the item cache on
+-- demand. Jewelcrafter-only epics (Falling Star, Kailee's Rose, Facet of
+-- Eternity and friends) are quality 4 gems, so a quality filter alone happily
+-- advertises gems that can never reach a customer.
+local function BindTypeOf(itemID, e)
+    if e.bindType ~= nil then return e.bindType end
+    local bind = select(14, GetItemInfo(itemID))
+    if bind ~= nil then e.bindType = bind end
+    return bind
+end
+
 function Barker.AdvertisedEntries()
     local list = {}
     for itemID, e in pairs(ns.db.book) do
-        if e.advertise and not e.stale and e.link then
+        if e.advertise and not e.stale and e.link and BindTypeOf(itemID, e) ~= 1 then
             list[#list + 1] = {
                 itemID = itemID, link = e.link,
                 header = e.header or "", name = e.name or "",
@@ -118,6 +130,9 @@ function Barker.ApplyAdvertiseFilter(book, mode)
             elseif mode == "epic" then
                 e.advertise = (e.classID == 3 and (e.quality or 0) >= 4)
             end
+            -- Bind on pickup can never reach a customer, so it is never worth
+            -- advertising. This overrides even "all" on purpose.
+            if e.bindType == 1 then e.advertise = false end
             if e.advertise then n = n + 1 end
         end
     end

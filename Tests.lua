@@ -159,11 +159,16 @@ end)
 
 local function fixtureBook()
     return {
-        [24033] = { itemID = 24033, name = "Bold Living Ruby", match = true, aliases = {} },
-        [24048] = { itemID = 24048, name = "Runed Living Ruby", match = true, aliases = {} },
-        [24028] = { itemID = 24028, name = "Solid Star of Elune", match = true, aliases = {} },
-        [23096] = { itemID = 23096, name = "Great Golden Draenite", match = true, aliases = {} },
-        [99999] = { itemID = 99999, name = "Hidden Cut Gem", match = false, aliases = {} },
+        [24033] = { itemID = 24033, name = "Bold Living Ruby",
+                    classID = 3, match = true, aliases = {} },
+        [24048] = { itemID = 24048, name = "Runed Living Ruby",
+                    classID = 3, match = true, aliases = {} },
+        [24028] = { itemID = 24028, name = "Solid Star of Elune",
+                    classID = 3, match = true, aliases = {} },
+        [23096] = { itemID = 23096, name = "Great Golden Draenite",
+                    classID = 3, match = true, aliases = {} },
+        [99999] = { itemID = 99999, name = "Hidden Cut Gem",
+                    classID = 3, match = false, aliases = {} },
     }
 end
 
@@ -454,7 +459,7 @@ local function classifyWhisper(text, over)
         linkCount = #ns.Util.ExtractItemIDs(text),
         hasDesignLink = false,
         isRepeat = false,
-        isWhisper = true,
+        isDirect = true,
         filter = filter,
     })
 end
@@ -523,7 +528,8 @@ end)
 
 T.Case("NearMiss finds a known gem family from an unknown cut", function()
     local book = fixtureBook()
-    book[24099] = { itemID = 24099, name = "Glowing Living Ruby", match = true, aliases = {} }
+    book[24099] = { itemID = 24099, name = "Glowing Living Ruby",
+                    classID = 3, match = true, aliases = {} }
     local index = ns.Matcher.BuildIndex(book)
     local norm = ns.Util.Normalize("can you do a Sparkling Living Ruby?")
     T.Eq(#ns.Matcher.Match("x", norm, index), 0, "no direct match")
@@ -539,8 +545,10 @@ end)
 
 T.Case("NearMiss prefers the longest matching family", function()
     local book = {
-        [1] = { itemID = 1, name = "Balanced Shadowsong Amethyst", match = true, aliases = {} },
-        [2] = { itemID = 2, name = "Bold Amethyst", match = true, aliases = {} },
+        [1] = { itemID = 1, name = "Balanced Shadowsong Amethyst",
+                classID = 3, match = true, aliases = {} },
+        [2] = { itemID = 2, name = "Bold Amethyst",
+                classID = 3, match = true, aliases = {} },
     }
     local index = ns.Matcher.BuildIndex(book)
     local family = ns.Matcher.NearMiss(
@@ -579,4 +587,179 @@ end)
 
 T.Case("Classifier ignores requests for other professions", function()
     T.Eq(classify("LF enchanter for boots").reason, "no gem match", "not our trade")
+end)
+
+local function reagentBook()
+    return {
+        -- Bold and Runed Living Ruby both consume one Living Ruby (23436).
+        [24033] = { itemID = 24033, name = "Bold Living Ruby",
+                    reagents = { [23436] = 1 } },
+        [24048] = { itemID = 24048, name = "Runed Living Ruby",
+                    reagents = { [23436] = 1 } },
+        [24028] = { itemID = 24028, name = "Solid Star of Elune",
+                    reagents = { [23440] = 1 } },
+        [99998] = { itemID = 99998, name = "Soulbound Figurine",
+                    reagents = { [23441] = 1 }, bindType = 1 },
+    }
+end
+
+local function orderFor(itemIDs, qty)
+    local o = { items = {}, matsReceived = {} }
+    for _, id in ipairs(itemIDs) do
+        o.items[#o.items + 1] = { itemID = id, qty = qty or 1, qtySource = "default" }
+    end
+    return o
+end
+
+T.Case("InferQuantities takes the count from the mats, not the text", function()
+    local o = orderFor({ 24033 })
+    o.items[1].qty = 1
+    local split = ns.Orders.InferQuantities(o, { [23436] = 3 }, reagentBook())
+    T.Eq(split, false, "unambiguous")
+    T.Eq(o.items[1].qty, 3, "quantity from mats")
+    T.Eq(o.items[1].qtySource, "mats", "source")
+end)
+
+T.Case("InferQuantities overrides a stated text quantity", function()
+    local o = orderFor({ 24033 })
+    o.items[1].qty = 2
+    o.items[1].qtySource = "text"
+    ns.Orders.InferQuantities(o, { [23436] = 3 }, reagentBook())
+    T.Eq(o.items[1].qty, 3, "mats win over the text hint")
+end)
+
+T.Case("InferQuantities flags an ambiguous split instead of guessing", function()
+    local o = orderFor({ 24033, 24048 })
+    local split = ns.Orders.InferQuantities(o, { [23436] = 3 }, reagentBook())
+    T.Eq(split, true, "needsSplit")
+    T.Eq(o.items[1].qtySource, "ambiguous", "not silently allocated")
+    T.Eq(o.items[2].qtySource, "ambiguous", "not silently allocated")
+end)
+
+T.Case("InferQuantities adds a cut they did not ask for", function()
+    local o = orderFor({ 24033 })
+    local _, added = ns.Orders.InferQuantities(o, { [23440] = 2 }, reagentBook())
+    T.Eq(#added, 1, "one item added")
+    T.Eq(added[1].itemID, 24028, "matched the reagent to the right cut")
+    T.Eq(added[1].qty, 2, "quantity from mats")
+end)
+
+T.Case("InferQuantities never adds a bind on pickup craft", function()
+    local o = orderFor({ 24033 })
+    local _, added = ns.Orders.InferQuantities(o, { [23441] = 2 }, reagentBook())
+    T.Eq(#added, 0, "soulbound craft cannot be delivered, so not added")
+end)
+
+T.Case("Ledger.SumSince only counts recent entries", function()
+    local entries = {
+        { at = 1000, copper = 5000, gems = { [1] = 2 } },
+        { at =  100, copper = 9000, gems = { [1] = 1 } },
+    }
+    local copper, gems, n = ns.Ledger.SumSince(entries, 500)
+    T.Eq(copper, 5000, "copper")
+    T.Eq(gems, 2, "gems")
+    T.Eq(n, 1, "entries")
+end)
+
+T.Case("Trade.Classify separates raw mats from finished cuts", function()
+    local snapshot = {
+        incoming = { [23436] = 3, [24033] = 1 },
+        outgoing = { [24048] = 2 },
+    }
+    local raw, cuts, delivered = ns.Trade.Classify(snapshot, reagentBook())
+    T.Eq(raw[23436], 3, "raw gem")
+    T.Eq(raw[24033], nil, "a known cut is not raw")
+    T.Eq(cuts[24033], 1, "known cut incoming")
+    T.Eq(delivered[24048], 2, "delivered cut")
+end)
+
+T.Case("ApplyAdvertiseFilter never advertises bind on pickup", function()
+    local book = {
+        [1] = { itemID = 1, name = "Epic Gem",  classID = 3, quality = 4 },
+        [2] = { itemID = 2, name = "Bound Gem", classID = 3, quality = 4, bindType = 1 },
+    }
+    T.Eq(ns.Barker.ApplyAdvertiseFilter(book, "all"), 1, "all still excludes BoP")
+    T.Eq(book[2].advertise, false, "bop excluded")
+end)
+
+T.Case("Matcher skips bind on pickup crafts", function()
+    local book = {
+        [1] = { itemID = 1, name = "Bold Living Ruby",
+                classID = 3, match = true, aliases = {} },
+        [2] = { itemID = 2, name = "Bound Living Ruby", classID = 3,
+                match = true, aliases = {}, bindType = 1 },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    T.Eq(index.byID[2], nil, "bop not indexed")
+    T.Eq(index.byID[1], true, "tradeable cut indexed")
+end)
+
+T.Case("FindOrderItems never offers a soulbound craft", function()
+    local savedBook = ns.db.book
+    ns.db.book = {
+        [1] = { itemID = 1, name = "Tradeable Cut" },
+        [2] = { itemID = 2, name = "Soulbound Cut", bindType = 1 },
+    }
+    local order = { items = { { itemID = 1, qty = 1 }, { itemID = 2, qty = 1 } } }
+    -- No container API in the test harness, so this asserts the guard rather
+    -- than the bag walk: it must return safely instead of erroring.
+    local found = ns.Trade.FindOrderItems(order)
+    T.Eq(type(found), "table", "returns a table")
+    ns.db.book = savedBook
+end)
+
+T.Case("Loose matching ignores filler words", function()
+    local book = {
+        [21779] = { itemID = 21779, name = "Band of Natural Fire",
+                    classID = 3, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    -- A raid ad reading "band of karabor" must not match on band + of.
+    local norm = ns.Util.Normalize(
+        "LFM BT tonight, floor loot, band of karabor HR, LF ret")
+    T.Eq(#ns.Matcher.Match("x", norm, index), 0, "no false match on filler words")
+end)
+
+T.Case("Loose matching does not apply to jewelry", function()
+    local book = {
+        [21779] = { itemID = 21779, name = "Band of Natural Fire",
+                    classID = 4, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    T.Eq(#index.loose, 0, "rings get no loose entry")
+    -- The full name still matches.
+    local norm = ns.Util.Normalize("wtb band of natural fire")
+    T.Eq(#ns.Matcher.Match("x", norm, index), 1, "full name still works")
+end)
+
+T.Case("Solid Star of Elune keeps working despite containing 'of'", function()
+    -- Stopwords are dropped from the bases, but "star" and "elune" remain,
+    -- so real shorthand still resolves.
+    T.Eq(matchIDs("wtb solid elune")[24028], "loose", "still matches")
+end)
+
+local function classifyParty(text)
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    local norm = ns.Util.Normalize(text)
+    local filter = ns.DeepCopy(ns.Defaults.settings.filter)
+    filter.requireBuyerSignal = false
+    return ns.Classifier.Evaluate({
+        norm = norm, raw = text,
+        matched = ns.Matcher.Match(text, norm, index),
+        linkCount = #ns.Util.ExtractItemIDs(text),
+        isDirect = true, filter = filter,
+    })
+end
+
+T.Case("Party chat naming a gem counts as the order", function()
+    T.Eq(classifyParty("bold living ruby please").verdict, "invite", "plain name")
+    T.Eq(classifyParty(RUBY_LINK).verdict, "invite", "bare link")
+end)
+
+T.Case("Party chat does not penalise listing several gems", function()
+    local three = RUBY_LINK .. " " .. RUBY_LINK:gsub("24033", "24048")
+        .. " " .. RUBY_LINK:gsub("24033", "23096")
+    local r = classifyParty("can you do " .. three)
+    T.Eq(r.sellerHits.manyLinks, nil, "broadcast signal suppressed")
+    T.Eq(r.verdict, "invite", "verdict")
 end)

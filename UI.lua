@@ -519,22 +519,59 @@ function UI.BuildInvite(page)
         self:SetValue(ns.db.settings.invite.maxParty)
     end)
 
-    local wLabel = Label(page, "Whisper sent on invite ({gem} and {player})")
-    wLabel:SetPoint("TOPLEFT", 0, -216)
+    -- Every whisper the addon can send, editable. These go out in the user's
+    -- name, so nothing here should be hardcoded.
+    local templates = {
+        { key = "template",
+          label = "They named a gem you have  |cff888888{gem} {player}|r" },
+        { key = "templateNoGem",
+          label = "They asked for a jeweller but named nothing  |cff888888{player}|r" },
+        { key = "confirmTemplate",
+          label = "They answered with a cut you have  |cff888888{gem} {player}|r" },
+        { key = "suggestTemplate",
+          label = "They asked for a cut you lack  |cff888888{gems} {player}|r" },
+    }
 
-    local box = CreateFrame("EditBox", nil, page, BackdropTemplateMixin and "BackdropTemplate")
-    box:SetSize(580, 24)
-    box:SetPoint("TOPLEFT", 0, -234)
-    box:SetAutoFocus(false)
-    box:SetFontObject("GameFontHighlightSmall")
-    box:SetTextInsets(6, 6, 0, 0)
-    Skin(box, 0.1, 0.1, 0.12, 1)
-    box:SetScript("OnShow", function(self)
-        self:SetText(ns.db.settings.invite.whisper.template)
-    end)
-    box:SetScript("OnEnterPressed", function(self)
-        ns.db.settings.invite.whisper.template = self:GetText()
-        ns.Print("whisper template saved.")
-        self:ClearFocus()
-    end)
+    local y = -212
+    for _, t in ipairs(templates) do
+        local lbl = Label(page, t.label)
+        lbl:SetPoint("TOPLEFT", 0, y)
+
+        local box = CreateFrame("EditBox", nil, page,
+            BackdropTemplateMixin and "BackdropTemplate")
+        box:SetSize(520, 22)
+        box:SetPoint("TOPLEFT", 0, y - 16)
+        box:SetAutoFocus(false)
+        box:SetFontObject("GameFontHighlightSmall")
+        box:SetTextInsets(6, 6, 0, 0)
+        Skin(box, 0.1, 0.1, 0.12, 1)
+        box:SetScript("OnShow", function(self)
+            self:SetText(ns.db.settings.invite.whisper[t.key] or "")
+        end)
+        box:SetScript("OnEscapePressed", function(self)
+            self:SetText(ns.db.settings.invite.whisper[t.key] or "")
+            self:ClearFocus()
+        end)
+        box:SetScript("OnEnterPressed", function(self)
+            ns.db.settings.invite.whisper[t.key] = self:GetText()
+            ns.Print("saved.")
+            self:ClearFocus()
+        end)
+
+        local reset = Button(page, "Reset", 52, 22)
+        reset:SetPoint("TOPLEFT", 528, y - 16)
+        reset:SetScript("OnClick", function()
+            local d = ns.Defaults.settings.invite.whisper[t.key]
+            ns.db.settings.invite.whisper[t.key] = d
+            box:SetText(d or "")
+        end)
+
+        y = y - 46
+    end
+
+    local hint = Label(page,
+        "|cff888888Press Enter to save a line, Escape to discard. "
+        .. "Leave a line empty to send nothing for that case.|r",
+        "GameFontDisableSmall")
+    hint:SetPoint("TOPLEFT", 0, y - 4)
 end

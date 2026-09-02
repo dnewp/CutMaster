@@ -7,6 +7,19 @@ local Util = ns.Util
 local TIER_RANK = { link = 4, name = 3, alias = 2, loose = 1 }
 local LOOSE_WINDOW = 3
 
+-- Filler words carry no identity. "Band of Natural Fire" splitting into
+-- prefix "band" plus base "of" matched a raid ad reading "band of karabor".
+local STOPWORDS = {
+    ["of"] = true, ["the"] = true, ["a"] = true, ["an"] = true,
+    ["and"] = true, ["to"] = true, ["for"] = true, ["in"] = true,
+}
+
+-- Loose shorthand is a gem-cut convention: people write "bold ruby" for Bold
+-- Living Ruby. Nobody shortens a ring called "Band of Natural Fire", and
+-- jewelry names are ordinary English phrases that collide with normal chat.
+-- Class 3 is Gem.
+local GEM_CLASS = 3
+
 local WORDNUM = {
     one = 1, two = 2, three = 3, four = 4, five = 5,
     six = 6, seven = 7, eight = 8, nine = 9, ten = 10,
@@ -15,7 +28,14 @@ local WORDNUM = {
 function Matcher.BuildIndex(book)
     local index = { byID = {}, names = {}, aliases = {}, loose = {}, bases = {} }
     for itemID, e in pairs(book or {}) do
-        if e.match and not e.stale then
+        -- Bind on pickup cannot be delivered, so never invite for one. Leaving
+        -- it out of the index also lets NearMiss suggest the cuts we can
+        -- actually hand over from the same gem family.
+        if e.bindType == nil and GetItemInfo then
+            local bind = select(14, GetItemInfo(itemID))
+            if bind ~= nil then e.bindType = bind end
+        end
+        if e.match and not e.stale and e.bindType ~= 1 then
             index.byID[itemID] = true
 
             local norm = Util.Normalize(e.name)
@@ -24,9 +44,12 @@ function Matcher.BuildIndex(book)
             -- "Bold Living Ruby" splits into prefix "bold" and bases
             -- {"living", "ruby"} so shorthand like "bold ruby" still resolves.
             local toks = Util.Tokenize(norm)
-            if #toks >= 2 then
+            if #toks >= 2 and e.classID == GEM_CLASS then
                 local bases = {}
-                for i = 2, #toks do bases[#bases + 1] = toks[i] end
+                for i = 2, #toks do
+                    if not STOPWORDS[toks[i]] then bases[#bases + 1] = toks[i] end
+                end
+                if #bases > 0 then
                 index.loose[#index.loose + 1] = {
                     itemID = itemID, prefix = toks[1], bases = bases,
                 }
@@ -39,6 +62,7 @@ function Matcher.BuildIndex(book)
                 index.bases[baseKey] = index.bases[baseKey] or {}
                 local list = index.bases[baseKey]
                 list[#list + 1] = itemID
+                end
             end
 
             for _, a in ipairs(e.aliases or {}) do

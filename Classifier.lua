@@ -83,11 +83,12 @@ function Classifier.Evaluate(ctx)
     end
 
     -- Vocabulary-free signals. These catch competitors who word ads carefully,
-    -- but they all describe a BROADCAST. In a whisper they invert: a customer
-    -- listing three gems they want would otherwise be scored as an advertiser.
+    -- but they all describe a BROADCAST. Whispers and party chat are directed
+    -- at us, so there they invert: a customer listing three gems they want
+    -- would otherwise be scored as an advertiser.
     local hasQuestion = ctx.raw and ctx.raw:find("?", 1, true) ~= nil
 
-    if not ctx.isWhisper then
+    if not ctx.isDirect then
         if (ctx.linkCount or 0) >= MANY_LINKS then
             seller("manyLinks", filter.weights.manyLinks)
         end
