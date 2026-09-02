@@ -60,6 +60,37 @@ function Events.Process(text, author, source, opts)
         filter.requireBuyerSignal = false
     end
 
+    -- Did they name a specific gem that is not in our book? Either a linked
+    -- gem item we cannot craft, or a plain-text cut from a gem family we know.
+    local namedUnknownGem = false
+    if #matched == 0 then
+        for _, id in ipairs(ns.Util.ExtractItemIDs(text)) do
+            if not ns.db.book[id] then
+                local classID = select(12, GetItemInfo(id))
+                if classID == 3 then namedUnknownGem = true break end
+            end
+        end
+        if not namedUnknownGem and ns.Matcher.NearMiss(norm, Events.index) then
+            namedUnknownGem = true
+        end
+    end
+
+    -- They may have linked several gems and we only know some of them.
+    -- Booking the ones we can do and saying nothing about the rest leaves the
+    -- customer asking "got both?", which is exactly what happened.
+    local canDo, cannotDo = {}, {}
+    do
+        local matchedSet = {}
+        for _, h in ipairs(matched) do matchedSet[h.itemID] = true end
+        for _, l in ipairs(ns.Util.ExtractItemLinks(text)) do
+            if matchedSet[l.id] then
+                canDo[#canDo + 1] = l.link
+            elseif not ns.db.book[l.id] and select(12, GetItemInfo(l.id)) == 3 then
+                cannotDo[#cannotDo + 1] = l.link
+            end
+        end
+    end
+
     local blocked
     if not opts.dryRun then
         if isWhisper and not ns.db.settings.invite.fromWhisper then
@@ -78,6 +109,7 @@ function Events.Process(text, author, source, opts)
         matched = matched,
         linkCount = #ns.Util.ExtractItemIDs(text),
         hasDesignLink = HasDesignLink(text),
+        namedUnknownGem = namedUnknownGem,
         isRepeat = isRepeat,
         isDirect = isDirect,
         playerState = state,
@@ -115,10 +147,22 @@ function Events.Process(text, author, source, opts)
         if #matched > 0 then
             local e = ns.db.book[matched[1].itemID]
             local link = e and (e.link or e.name)
-            -- Only confirm when they are answering our question. A fresh
-            -- request already gets the invite whisper, which says the same
-            -- thing, and two whispers in a row reads like spam.
-            if state.awaitingGem and w.enabled and w.autoReply then
+
+            if #cannotDo > 0 and w.enabled and w.autoReply then
+                -- They asked about several and we only have some. Answering
+                -- which is directly responsive, not an unsolicited pitch.
+                local have = #canDo > 0 and table.concat(canDo, " ") or (link or "that")
+                ns.Inviter.Say(short, w.partialTemplate, {
+                    have = have,
+                    lack = table.concat(cannotDo, " "),
+                })
+                ns.Print(string.format(
+                    "|cffffcc00%s asked for %d cuts, you have %d.|r Cannot do: %s",
+                    short, #canDo + #cannotDo, #canDo, table.concat(cannotDo, " ")))
+            elseif state.awaitingGem and w.enabled and w.autoReply then
+                -- Only confirm when they are answering our question. A fresh
+                -- request already gets the invite whisper, which says the same
+                -- thing, and two whispers in a row reads like spam.
                 ns.Inviter.Say(short, w.confirmTemplate, { gem = link })
             end
             state.awaitingGem = nil

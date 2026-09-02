@@ -538,9 +538,11 @@ function UI.BuildInvite(page)
           label = "They answered with a cut you have  |cff888888{gem} {player}|r" },
         { key = "suggestTemplate",
           label = "They asked for a cut you lack  |cff888888{gems} {player}|r" },
+        { key = "partialTemplate",
+          label = "They asked for several, you have some  |cff888888{have} {lack}|r" },
     }
 
-    local y = -212
+    local y = -206
     for _, t in ipairs(templates) do
         local lbl = Label(page, t.label)
         lbl:SetPoint("TOPLEFT", 0, y)
@@ -574,7 +576,7 @@ function UI.BuildInvite(page)
             box:SetText(d or "")
         end)
 
-        y = y - 46
+        y = y - 42
     end
 
     local hint = Label(page,

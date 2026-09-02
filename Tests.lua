@@ -763,3 +763,61 @@ T.Case("Party chat does not penalise listing several gems", function()
     T.Eq(r.sellerHits.manyLinks, nil, "broadcast signal suppressed")
     T.Eq(r.verdict, "invite", "verdict")
 end)
+
+T.Case("A profession request naming a cut we lack does not invite", function()
+    -- "LF JC'er with [Veiled Pyrestone] pst": they named one specific cut and
+    -- it is not ours, so the LF JC phrase must not carry it through.
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    local text = "LF JC'er with [Veiled Pyrestone] pst"
+    local norm = ns.Util.Normalize(text)
+    local r = ns.Classifier.Evaluate({
+        norm = norm, raw = text,
+        matched = ns.Matcher.Match(text, norm, index),
+        linkCount = 0,
+        namedUnknownGem = true,
+        filter = ns.DeepCopy(ns.Defaults.settings.filter),
+    })
+    T.Eq(r.verdict, "lowscore", "no invite")
+    T.Eq(r.reason, "named a cut we lack", "reason")
+end)
+
+T.Case("A bare profession request still invites", function()
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    local norm = ns.Util.Normalize("LF JC")
+    local r = ns.Classifier.Evaluate({
+        norm = norm, raw = "LF JC",
+        matched = ns.Matcher.Match("LF JC", norm, index),
+        linkCount = 0,
+        namedUnknownGem = false,
+        filter = ns.DeepCopy(ns.Defaults.settings.filter),
+    })
+    T.Eq(r.verdict, "invite", "still invites when nothing specific was named")
+end)
+
+T.Case("A profession request naming a cut we DO have invites", function()
+    local text = "LF JC for " .. RUBY_LINK
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    local norm = ns.Util.Normalize(text)
+    local r = ns.Classifier.Evaluate({
+        norm = norm, raw = text,
+        matched = ns.Matcher.Match(text, norm, index),
+        linkCount = 1,
+        namedUnknownGem = false,
+        filter = ns.DeepCopy(ns.Defaults.settings.filter),
+    })
+    T.Eq(r.verdict, "invite", "verdict")
+    T.Eq(r.reason, "matched", "matched a real cut")
+end)
+
+T.Case("ExtractItemLinks returns each full link with its id", function()
+    local two = RUBY_LINK .. RUBY_LINK:gsub("24033", "24048")
+    local links = ns.Util.ExtractItemLinks(two)
+    T.Eq(#links, 2, "count")
+    T.Eq(links[1].id, 24033, "first id")
+    T.Eq(links[2].id, 24048, "second id")
+    T.Eq(links[1].link:find("Bold Living Ruby", 1, true) ~= nil, true, "keeps the link text")
+end)
+
+T.Case("ExtractItemLinks copes with no links", function()
+    T.Eq(#ns.Util.ExtractItemLinks("got both?"), 0, "none")
+end)

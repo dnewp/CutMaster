@@ -78,6 +78,8 @@ ns.Defaults = {
                     .. "I'll get it cut.",
                 -- They named a cut we do not have, but we know that gem family.
                 suggestTemplate = "I don't have that exact cut, but I can do: {gems}",
+                -- They linked several and we only know some of them.
+                partialTemplate = "I can do {have}, but I don't have {lack}.",
                 cooldownSec = 600,
                 replyCooldownSec = 10,
             },

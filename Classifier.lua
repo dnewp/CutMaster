@@ -64,7 +64,20 @@ function Classifier.Evaluate(ctx)
     end
     result.professionRequest = isProfReq
 
-    if (not ctx.matched or #ctx.matched == 0) and not isProfReq then
+    local nothingMatched = (not ctx.matched or #ctx.matched == 0)
+
+    -- "LF JC with [Veiled Pyrestone]" is not a generic request for a jeweller,
+    -- it is a request for one specific cut. If that cut is not ours, the
+    -- profession phrase must not carry it: inviting them and asking "what do
+    -- you need cut?" when they already said, and we already cannot do it, is
+    -- the worst answer available.
+    if isProfReq and nothingMatched and ctx.namedUnknownGem then
+        result.verdict = "lowscore"
+        result.reason = "named a cut we lack"
+        return result
+    end
+
+    if nothingMatched and not isProfReq then
         result.verdict = "lowscore"
         result.reason = "no gem match"
         return result

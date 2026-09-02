@@ -36,6 +36,18 @@ function Util.ExtractItemIDs(raw)
     return ids
 end
 
+-- Full item links, not just ids, so we can quote back exactly what someone
+-- linked at us.
+function Util.ExtractItemLinks(raw)
+    local out = {}
+    if not raw then return out end
+    for link in raw:gmatch("|c%x+|Hitem:.-|h.-|h|r") do
+        local id = tonumber(link:match("|Hitem:(%d+)"))
+        if id then out[#out + 1] = { id = id, link = link } end
+    end
+    return out
+end
+
 function Util.HasPhrase(norm, phrase)
     if not norm or not phrase or phrase == "" then return false end
     return (" " .. norm .. " "):find(" " .. phrase .. " ", 1, true) ~= nil
