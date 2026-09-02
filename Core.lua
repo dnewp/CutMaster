@@ -32,6 +32,7 @@ ns.Defaults = {
     book = {},
     bookScannedAt = 0,
     bookPartial = false,
+    bookDirty = false,
     players = {},
     log = {},
     settings = {
@@ -79,12 +80,18 @@ ns.Defaults = {
                 manyLinks = 3, designLink = 4, repeatBark = 5, shapeMatch = 2, canCut = 4,
             },
         },
+        scan = {
+            autoStaleSec = 21600,
+        },
         debug = false,
     },
 }
 
 local frame = CreateFrame("Frame")
 frame:RegisterEvent("ADDON_LOADED")
+frame:RegisterEvent("SKILL_LINES_CHANGED")
+frame:RegisterEvent("TRADE_SKILL_SHOW")
+frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:SetScript("OnEvent", function(self, event, ...)
     local arg1 = ...
     if event == "ADDON_LOADED" and arg1 == addonName then
@@ -92,16 +99,69 @@ frame:SetScript("OnEvent", function(self, event, ...)
         ns.ApplyDefaults(CutMasterDB, ns.Defaults)
         ns.db = CutMasterDB
         ns.Print("loaded. /cm help for commands.")
+    elseif event == "SKILL_LINES_CHANGED" then
+        if ns.db then ns.db.bookDirty = true end
+    elseif event == "TRADE_SKILL_SHOW" then
+        -- GetNumTradeSkills reads 0 for a frame or two after the event fires.
+        C_Timer.After(0.2, function()
+            if not ns.Scanner.IsJewelcrafting() then return end
+            local count = 0
+            for _ in pairs(ns.db.book) do count = count + 1 end
+            local now = GetServerTime and GetServerTime() or time()
+            local should = ns.Scanner.initiatedByUs or ns.Scanner.ShouldAutoScan(
+                count, ns.db.bookDirty, ns.db.bookScannedAt,
+                now, ns.db.settings.scan.autoStaleSec)
+            if should then
+                ns.Scanner.Scan({ silent = not ns.Scanner.initiatedByUs })
+            end
+        end)
+    elseif event == "TRADE_SKILL_CLOSE" then
+        ns.Scanner.initiatedByUs = false
     end
 end)
 ns.frame = frame
 
+local function BookCounts()
+    local n, gems = 0, 0
+    for _, e in pairs(ns.db.book) do
+        if not e.stale then
+            n = n + 1
+            if e.classID == 3 then gems = gems + 1 end
+        end
+    end
+    return n, gems
+end
+
 local function HandleSlash(input)
-    local cmd = (input or ""):lower():match("^%s*(.-)%s*$")
+    local raw = ns.Util.Trim(input or "")
+    local cmd, rest = raw:match("^(%S*)%s*(.*)$")
+    cmd = (cmd or ""):lower()
+
     if cmd == "test" then
         ns.Tests.Run()
+    elseif cmd == "scan" then
+        ns.Scanner.Scan()
+    elseif cmd == "book" then
+        local n, gems = BookCounts()
+        ns.Print(string.format("book holds %d recipes (%d gems).", n, gems))
+    elseif cmd == "match" then
+        if rest == "" then
+            ns.Print("usage: /cm match <text or linked gem>")
+            return
+        end
+        local index = ns.Matcher.BuildIndex(ns.db.book)
+        local hits = ns.Matcher.Match(rest, ns.Util.Normalize(rest), index)
+        if #hits == 0 then
+            ns.Print("no gem matched.")
+        end
+        for _, h in ipairs(hits) do
+            local e = ns.db.book[h.itemID]
+            ns.Print(string.format("  %s  |cff888888[%s%s]|r",
+                e and (e.link or e.name) or h.itemID, h.tier,
+                h.qtyHint and (", qty " .. h.qtyHint) or ""))
+        end
     else
-        ns.Print("Commands: /cm test")
+        ns.Print("Commands: /cm scan, /cm book, /cm match <text>, /cm test")
     end
 end
 

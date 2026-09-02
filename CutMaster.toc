@@ -8,4 +8,6 @@
 
 Core.lua
 Util.lua
+Scanner.lua
+Matcher.lua
 Tests.lua

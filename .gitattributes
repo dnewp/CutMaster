@@ -1,0 +1,5 @@
+*.tga binary
+*.blp binary
+*.lua text
+*.toc text
+*.md text
