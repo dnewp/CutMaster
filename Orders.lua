@@ -56,6 +56,7 @@ function Orders.Record(player, source, text, matched, now)
         o = Orders.Create(player, source, text, matched, now)
         ns.Print(string.format("|cff44ff44order #%d opened|r for %s: %s",
             o.id, player, Orders.Summarise(o)))
+        if ns.Tracker then ns.Tracker.Notify() end
         return o, true
     end
 

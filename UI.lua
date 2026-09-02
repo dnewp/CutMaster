@@ -3,7 +3,7 @@ local addonName, ns = ...
 ns.UI = ns.UI or {}
 local UI = ns.UI
 
-local WIDTH, HEIGHT = 620, 520
+local WIDTH, HEIGHT = 720, 540
 local ROW_H = 18
 
 local BACKDROP = {
@@ -39,6 +39,9 @@ local function Label(parent, text, template)
     fs:SetText(text)
     return fs
 end
+
+-- Shared with UI_Orders.lua.
+UI.Skin, UI.Button, UI.Label = Skin, Button, Label
 
 --------------------------------------------------------------------------------
 -- Main frame
@@ -85,10 +88,10 @@ function UI.Create()
     UI.barkButton = bark
 
     UI.tabs, UI.pages = {}, {}
-    local names = { "Book", "Bark", "Filter", "Log", "Invite" }
+    local names = { "Book", "Bark", "Orders", "Income", "Filter", "Log", "Invite" }
     for i, name in ipairs(names) do
-        local tab = Button(f, name, 78, 20)
-        tab:SetPoint("TOPLEFT", 10 + (i - 1) * 80, -46)
+        local tab = Button(f, name, 82, 20)
+        tab:SetPoint("TOPLEFT", 8 + (i - 1) * 84, -46)
         tab:SetScript("OnClick", function() UI.SelectTab(i) end)
         UI.tabs[i] = tab
 
@@ -101,9 +104,11 @@ function UI.Create()
 
     UI.BuildBook(UI.pages[1])
     UI.BuildBark(UI.pages[2])
-    UI.BuildFilter(UI.pages[3])
-    UI.BuildLog(UI.pages[4])
-    UI.BuildInvite(UI.pages[5])
+    UI.BuildOrders(UI.pages[3])
+    UI.BuildIncome(UI.pages[4])
+    UI.BuildFilter(UI.pages[5])
+    UI.BuildLog(UI.pages[6])
+    UI.BuildInvite(UI.pages[7])
 
     UI.frame = f
     UI.SelectTab(1)
@@ -136,15 +141,17 @@ function UI.Refresh()
         end
     end
     UI.status:SetText(string.format(
-        "%d recipes (%d gems)  |  advertising %d  |  bark %s  |  invite %s%s",
-        n, gems, #ns.Barker.AdvertisedEntries(),
+        "%d recipes (%d gems)  |  advertising %d  |  %d open orders  |  bark %s  |  invite %s%s",
+        n, gems, #ns.Barker.AdvertisedEntries(), #ns.Orders.OpenList(),
         s.bark.enabled and "|cff44ff44on|r" or "|cffff4444off|r",
         s.invite.enabled and "|cff44ff44on|r" or "|cffff4444off|r",
         ns.Barker.pending and "  |  |cffffcc00BARK READY|r" or ""))
 
     if UI.current == 1 and UI.RefreshBook then UI.RefreshBook() end
     if UI.current == 2 and UI.RefreshBark then UI.RefreshBark() end
-    if UI.current == 4 and UI.RefreshLog then UI.RefreshLog() end
+    if UI.current == 3 and UI.RefreshOrders then UI.RefreshOrders() end
+    if UI.current == 4 and UI.RefreshIncome then UI.RefreshIncome() end
+    if UI.current == 6 and UI.RefreshLog then UI.RefreshLog() end
 end
 
 --------------------------------------------------------------------------------
@@ -160,6 +167,7 @@ local function ScrollList(parent, top, bottom)
     scroll:SetScrollChild(content)
     return scroll, content
 end
+UI.ScrollList = ScrollList
 
 --------------------------------------------------------------------------------
 -- Book tab

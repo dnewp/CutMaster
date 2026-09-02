@@ -131,6 +131,7 @@ ns.Defaults = {
         captureAll = false,
         outputFrame = 1,
         minimap = { hide = false },
+        tracker = { shown = false, autoShow = true, point = nil },
         debug = false,
     },
 }
@@ -158,6 +159,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
         ns.db = CutMasterDB
         if ns.db.settings.bark.enabled then ns.Barker.Start() end
         if ns.Minimap and ns.Minimap.Init then ns.Minimap.Init() end
+        if ns.db.settings.tracker.shown then
+            C_Timer.After(1, function() ns.Tracker.Show() end)
+        end
         ns.Print("loaded. /cm opens the window, /cm help lists commands.")
     elseif event == "SKILL_LINES_CHANGED" then
         if ns.db then ns.db.bookDirty = true end
@@ -265,6 +269,8 @@ local function HandleSlash(input)
             ns.Print("barking " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
             if s.enabled then ns.Barker.Start(true) else ns.Barker.Stop() end
         end
+    elseif cmd == "tracker" then
+        ns.Tracker.Toggle()
     elseif cmd == "orders" then
         local open = ns.Orders.OpenList()
         if #open == 0 then
@@ -451,7 +457,7 @@ local function HandleSlash(input)
         ns.Print("  /cm send, /cm preview,")
         ns.Print("  /cm adv rare|all|none|+text|-text,")
         ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
-        ns.Print("  /cm orders, /cm order add|done|cancel, /cm income,")
+        ns.Print("  /cm orders, /cm order add|done|cancel, /cm tracker, /cm income,")
         ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test")
     end
 end

@@ -14,7 +14,9 @@ function M.Init()
         type = "launcher",
         icon = ICON,
         OnClick = function(_, button)
-            if button == "RightButton" then
+            if button == "MiddleButton" then
+                ns.Tracker.Toggle()
+            elseif button == "RightButton" then
                 -- A real click, so this is a hardware event and the bark can
                 -- actually send from here.
                 local ok, info = ns.Barker.Tick(true)
@@ -35,6 +37,8 @@ function M.Init()
             tt:AddLine("CutMaster")
             tt:AddLine(string.format("|cffffffff%d|r recipes, |cffffffff%d|r gems, "
                 .. "|cffffffff%d|r advertised", n, gems, #ns.Barker.AdvertisedEntries()))
+            tt:AddLine(string.format("|cffffffff%d|r open orders",
+                #ns.Orders.OpenList()))
             tt:AddLine(string.format("barking %s   invites %s",
                 s.bark.enabled and "|cff44ff44on|r" or "|cffff4444off|r",
                 s.invite.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
@@ -44,6 +48,7 @@ function M.Init()
             tt:AddLine(" ")
             tt:AddLine("|cff888888Left click: open CutMaster|r")
             tt:AddLine("|cff888888Right click: send a bark now|r")
+            tt:AddLine("|cff888888Middle click: toggle the order tracker|r")
         end,
     })
 

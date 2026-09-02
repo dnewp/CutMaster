@@ -25,5 +25,7 @@ Orders.lua
 Ledger.lua
 Trade.lua
 UI.lua
+UI_Orders.lua
+Tracker.lua
 Minimap.lua
 Tests.lua
