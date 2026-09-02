@@ -1,0 +1,11 @@
+## Interface: 20505
+## Title: CutMaster
+## Notes: Jewelcrafting business assistant: book scanning, trade chat auto-invite, and barking.
+## Author: Dezedin
+## Version: 0.1.0
+## IconTexture: Interface\AddOns\CutMaster\CutMaster.tga
+## SavedVariablesPerCharacter: CutMasterDB
+
+Core.lua
+Util.lua
+Tests.lua

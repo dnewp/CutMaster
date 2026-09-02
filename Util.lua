@@ -1,0 +1,55 @@
+local addonName, ns = ...
+
+ns.Util = ns.Util or {}
+local Util = ns.Util
+
+function Util.Trim(s)
+    if not s then return "" end
+    return (s:gsub("^%s*(.-)%s*$", "%1"))
+end
+
+function Util.StripEscapes(s)
+    if not s then return "" end
+    s = s:gsub("|c%x%x%x%x%x%x%x%x", "")
+    s = s:gsub("|r", "")
+    s = s:gsub("|H.-|h(.-)|h", "%1")
+    s = s:gsub("|T.-|t", "")
+    s = s:gsub("|A.-|a", "")
+    return s
+end
+
+function Util.Normalize(s)
+    if not s then return "" end
+    s = Util.StripEscapes(s)
+    s = s:lower()
+    s = s:gsub("[^%w%s]", " ")
+    s = s:gsub("%s+", " ")
+    return Util.Trim(s)
+end
+
+function Util.ExtractItemIDs(raw)
+    local ids = {}
+    if not raw then return ids end
+    for id in raw:gmatch("|Hitem:(%d+)") do
+        ids[#ids + 1] = tonumber(id)
+    end
+    return ids
+end
+
+function Util.HasPhrase(norm, phrase)
+    if not norm or not phrase or phrase == "" then return false end
+    return (" " .. norm .. " "):find(" " .. phrase .. " ", 1, true) ~= nil
+end
+
+function Util.EscapePattern(s)
+    return (s:gsub("[%^%$%(%)%%%.%[%]%*%+%-%?]", "%%%1"))
+end
+
+function Util.Tokenize(norm)
+    local t = {}
+    if not norm then return t end
+    for w in norm:gmatch("%S+") do
+        t[#t + 1] = w
+    end
+    return t
+end
