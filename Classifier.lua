@@ -51,7 +51,20 @@ function Classifier.Evaluate(ctx)
     -- was ever scored, so the addon could not explain itself while idle.
     result.blocked = ctx.blocked
 
-    if not ctx.matched or #ctx.matched == 0 then
+    -- Someone asking for a jewelcrafter without naming a gem ("LF JC") is a
+    -- customer too. Requiring a gem name silently dropped these.
+    -- Word order keeps this separate from a competitor's "JC LFW", and the
+    -- hard vetoes below still apply either way.
+    local isProfReq = false
+    for _, phrase in ipairs(filter.professionWords or {}) do
+        if Util.HasPhrase(ctx.norm, phrase) then
+            isProfReq = true
+            break
+        end
+    end
+    result.professionRequest = isProfReq
+
+    if (not ctx.matched or #ctx.matched == 0) and not isProfReq then
         result.verdict = "lowscore"
         result.reason = "no gem match"
         return result
@@ -69,22 +82,27 @@ function Classifier.Evaluate(ctx)
         end
     end
 
-    -- Vocabulary-free signals. These catch competitors who word ads carefully.
-    if (ctx.linkCount or 0) >= MANY_LINKS then
-        seller("manyLinks", filter.weights.manyLinks)
+    -- Vocabulary-free signals. These catch competitors who word ads carefully,
+    -- but they all describe a BROADCAST. In a whisper they invert: a customer
+    -- listing three gems they want would otherwise be scored as an advertiser.
+    local hasQuestion = ctx.raw and ctx.raw:find("?", 1, true) ~= nil
+
+    if not ctx.isWhisper then
+        if (ctx.linkCount or 0) >= MANY_LINKS then
+            seller("manyLinks", filter.weights.manyLinks)
+        end
+
+        if ctx.isRepeat then
+            seller("repeatBark", filter.weights.repeatBark)
+        end
+
+        if (ctx.linkCount or 0) >= 2 and not hasQuestion and result.sellerScore > 0 then
+            seller("shapeMatch", filter.weights.shapeMatch)
+        end
     end
 
     if ctx.hasDesignLink then
         seller("designLink", filter.weights.designLink)
-    end
-
-    if ctx.isRepeat then
-        seller("repeatBark", filter.weights.repeatBark)
-    end
-
-    local hasQuestion = ctx.raw and ctx.raw:find("?", 1, true) ~= nil
-    if (ctx.linkCount or 0) >= 2 and not hasQuestion and result.sellerScore > 0 then
-        seller("shapeMatch", filter.weights.shapeMatch)
     end
 
     for phrase, weight in pairs(filter.buyerWords) do
@@ -132,6 +150,10 @@ function Classifier.Evaluate(ctx)
     end
 
     result.verdict = "invite"
-    result.reason = "matched"
+    if isProfReq and (not ctx.matched or #ctx.matched == 0) then
+        result.reason = "jc request"
+    else
+        result.reason = "matched"
+    end
     return result
 end

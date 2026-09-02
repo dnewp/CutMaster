@@ -1,0 +1,8 @@
+<Bindings>
+    <Binding name="CUTMASTER_BARK" header="CUTMASTER" description="Send the next CutMaster bark to Trade chat">
+        CutMaster_BarkNow()
+    </Binding>
+    <Binding name="CUTMASTER_TOGGLE" description="Open or close the CutMaster window">
+        CutMaster_Toggle()
+    </Binding>
+</Bindings>

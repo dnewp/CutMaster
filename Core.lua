@@ -60,6 +60,7 @@ ns.Defaults = {
             enabled = true,
             maxParty = 5,
             playerCooldownSec = 600,
+            fromWhisper = true,
             whisper = {
                 enabled = true,
                 template = "Invited you for {gem}, accept and trade me the mats + tip!",
@@ -85,6 +86,15 @@ ns.Defaults = {
                 ["lfjc"] = 3, ["lf jc"] = 3, ["have mats"] = 2, ["got mats"] = 2,
                 ["have the mats"] = 2, ["will tip"] = 2, ["paying"] = 2, ["pay for"] = 2,
             },
+            -- Asking for the profession itself, with no gem named. Word order
+            -- separates these from a competitor's "JC LFW".
+            professionWords = {
+                "lf jc", "lfjc", "lf a jc", "any jc", "any jcs", "need a jc",
+                "need jc", "looking for a jc", "looking for jc",
+                "lf jewelcrafter", "lf a jewelcrafter", "any jewelcrafter",
+                "need a jewelcrafter", "need jewelcrafter",
+                "looking for a jewelcrafter", "jc online", "jc around",
+            },
             canCutGuards = { "who", "anyone", "any1", "anybody", "someone", "jc" },
             weights = {
                 manyLinks = 3, designLink = 4, repeatBark = 5, shapeMatch = 2, canCut = 4,
@@ -95,6 +105,7 @@ ns.Defaults = {
         },
         captureAll = false,
         outputFrame = 1,
+        minimap = { hide = false },
         debug = false,
     },
 }
@@ -105,13 +116,16 @@ frame:RegisterEvent("SKILL_LINES_CHANGED")
 frame:RegisterEvent("TRADE_SKILL_SHOW")
 frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:RegisterEvent("CHAT_MSG_CHANNEL")
+frame:RegisterEvent("CHAT_MSG_WHISPER")
 frame:SetScript("OnEvent", function(self, event, ...)
     local arg1 = ...
     if event == "ADDON_LOADED" and arg1 == addonName then
         CutMasterDB = CutMasterDB or {}
         ns.ApplyDefaults(CutMasterDB, ns.Defaults)
         ns.db = CutMasterDB
-        ns.Print("loaded. /cm help for commands.")
+        if ns.db.settings.bark.enabled then ns.Barker.Start() end
+        if ns.Minimap and ns.Minimap.Init then ns.Minimap.Init() end
+        ns.Print("loaded. /cm opens the window, /cm help lists commands.")
     elseif event == "SKILL_LINES_CHANGED" then
         if ns.db then ns.db.bookDirty = true end
     elseif event == "TRADE_SKILL_SHOW" then
@@ -135,6 +149,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
         if channelName and channelName:find("Trade", 1, true) then
             ns.Events.OnTradeMessage(text, author)
         end
+    elseif event == "CHAT_MSG_WHISPER" then
+        local text, author = ...
+        ns.Events.OnWhisper(text, author)
     end
 end)
 ns.frame = frame
@@ -155,7 +172,9 @@ local function HandleSlash(input)
     local cmd, rest = raw:match("^(%S*)%s*(.*)$")
     cmd = (cmd or ""):lower()
 
-    if cmd == "test" then
+    if cmd == "" or cmd == "config" then
+        ns.UI.Toggle()
+    elseif cmd == "test" then
         ns.Tests.Run()
     elseif cmd == "scan" then
         ns.Scanner.Scan()
@@ -182,6 +201,66 @@ local function HandleSlash(input)
         local s = ns.db.settings.invite
         s.enabled = not s.enabled
         ns.Print("auto invite " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
+    elseif cmd == "bark" then
+        local s = ns.db.settings.bark
+        local secs = tonumber(rest)
+        if secs then
+            s.intervalSec = math.max(30, math.min(600, secs))
+            s.enabled = true
+            if secs ~= s.intervalSec then
+                ns.Print(string.format(
+                    "|cffff9900%d is outside the allowed 30 to 600 range, using %d.|r",
+                    secs, s.intervalSec))
+            end
+            ns.Print(string.format("barking every %d seconds.", s.intervalSec))
+            ns.Barker.Start(true)
+        else
+            s.enabled = not s.enabled
+            ns.Print("barking " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
+            if s.enabled then ns.Barker.Start(true) else ns.Barker.Stop() end
+        end
+    elseif cmd == "adv" then
+        local book = ns.db.book
+        local sub = rest:lower()
+        if sub == "all" or sub == "none" or sub == "rare" or sub == "epic" then
+            local n = ns.Barker.ApplyAdvertiseFilter(book, sub)
+            ns.Print(string.format("advertising %d recipes (%s).", n, sub))
+        elseif sub:sub(1, 1) == "+" or sub:sub(1, 1) == "-" then
+            local on = sub:sub(1, 1) == "+"
+            local n = ns.Barker.SetAdvertiseMatching(book, rest:sub(2), on)
+            ns.Print(string.format("%s %d recipes matching '%s'.",
+                on and "added" or "removed", n, rest:sub(2)))
+        else
+            local list = ns.Barker.AdvertisedEntries()
+            ns.Print(string.format("advertising %d recipes:", #list))
+            for i = 1, math.min(#list, 40) do
+                ns.Print("  " .. (ns.db.book[list[i].itemID].link or list[i].name))
+            end
+            if #list > 40 then ns.Print(string.format("  ...and %d more", #list - 40)) end
+            ns.Print("usage: /cm adv epic | rare | all | none | +<text> | -<text>")
+        end
+    elseif cmd == "send" then
+        local ok, info = ns.Barker.Tick(true)
+        if not ok then ns.Print("bark skipped: " .. tostring(info)) end
+    elseif cmd == "preview" then
+        local msg, _, used = ns.Barker.Preview()
+        if not msg then
+            ns.Print("nothing to advertise. Scan your book first.")
+        else
+            ns.Print(string.format("next bark (%d gems, %d chars):", used, #msg))
+            ns.Print("  " .. msg)
+        end
+    elseif cmd == "trywhisper" then
+        if rest == "" then
+            ns.Print("usage: /cm trywhisper <a whispered message>")
+            return
+        end
+        local r = ns.Events.OnWhisper(rest, "TestDummy", { dryRun = true })
+        if r then
+            ns.Print(string.format("verdict |cffffffff%s|r (%s), seller %d buyer %d net %d",
+                r.verdict, r.reason, r.sellerScore or 0, r.buyerScore or 0, r.netScore or 0))
+            ns.Print(ns.Log.DescribeHits(r))
+        end
     elseif cmd == "debug" then
         ns.db.settings.debug = not ns.db.settings.debug
         ns.Print("debug " .. (ns.db.settings.debug and "on" or "off"))
@@ -204,9 +283,11 @@ local function HandleSlash(input)
         local age = ns.db.bookScannedAt > 0
             and math.floor(((GetServerTime and GetServerTime() or time())
                 - ns.db.bookScannedAt) / 60) or -1
-        ns.Print(string.format("auto invite %s   barking %s   capture %s   debug %s",
-            onoff(s.invite.enabled), onoff(s.bark.enabled),
+        ns.Print(string.format("auto invite %s   barking %s (%ds, timer %s)   capture %s   debug %s",
+            onoff(s.invite.enabled), onoff(s.bark.enabled), s.bark.intervalSec,
+            ns.Barker.ticker and "running" or "stopped",
             onoff(s.captureAll), onoff(s.debug)))
+        ns.Print(string.format("advertising %d recipes", #ns.Barker.AdvertisedEntries()))
         ns.Print(string.format("book: %d recipes (%d gems), scanned %s",
             n, gems, age >= 0 and (age .. " min ago") or "never"))
         ns.Print(string.format("log: %d entries   capture: %d messages",
@@ -261,9 +342,32 @@ local function HandleSlash(input)
             ns.Print(ns.Log.DescribeHits(r))
         end
     else
-        ns.Print("Commands: /cm scan, /cm book, /cm match <text>, /cm try <message>,")
+        ns.Print("Commands: /cm (open window), /cm scan, /cm book, /cm match <text>,")
+        ns.Print("  /cm try <msg>,")
+        ns.Print("  /cm trywhisper <msg>, /cm bark [secs], /cm send, /cm preview,")
+        ns.Print("  /cm adv rare|all|none|+text|-text,")
         ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
         ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test")
+    end
+end
+
+-- Key binding names shown in the game's Key Bindings menu.
+BINDING_HEADER_CUTMASTER = "CutMaster"
+BINDING_NAME_CUTMASTER_BARK = "Send bark to Trade"
+BINDING_NAME_CUTMASTER_TOGGLE = "Toggle CutMaster window"
+
+-- Called from a key binding, which IS a hardware event, so the protected
+-- SendChatMessage is allowed here where a timer callback would be blocked.
+function CutMaster_BarkNow()
+    local ok, info = ns.Barker.Tick(true)
+    if not ok then ns.Print("bark skipped: " .. tostring(info)) end
+end
+
+function CutMaster_Toggle()
+    if ns.UI and ns.UI.Toggle then
+        ns.UI.Toggle()
+    else
+        ns.Print("UI not loaded.")
     end
 end
 

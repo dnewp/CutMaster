@@ -13,7 +13,7 @@ local WORDNUM = {
 }
 
 function Matcher.BuildIndex(book)
-    local index = { byID = {}, names = {}, aliases = {}, loose = {} }
+    local index = { byID = {}, names = {}, aliases = {}, loose = {}, bases = {} }
     for itemID, e in pairs(book or {}) do
         if e.match and not e.stale then
             index.byID[itemID] = true
@@ -30,6 +30,15 @@ function Matcher.BuildIndex(book)
                 index.loose[#index.loose + 1] = {
                     itemID = itemID, prefix = toks[1], bases = bases,
                 }
+
+                -- "Bold Living Ruby" -> base "living ruby". Lets us recognise a
+                -- request for a cut we do NOT know but whose gem family we do,
+                -- e.g. someone asking for Shifting Shadowsong Amethyst when we
+                -- can cut Balanced, Glowing and Infused Shadowsong Amethyst.
+                local baseKey = table.concat(bases, " ")
+                index.bases[baseKey] = index.bases[baseKey] or {}
+                local list = index.bases[baseKey]
+                list[#list + 1] = itemID
             end
 
             for _, a in ipairs(e.aliases or {}) do
@@ -56,6 +65,21 @@ function Matcher.QtyHint(norm, phrase)
     if w and WORDNUM[w] then return WORDNUM[w] end
 
     return nil
+end
+
+-- Call only when Match found nothing. Returns the gem family named in the
+-- message and the cuts of it we do know, or nil.
+function Matcher.NearMiss(norm, index)
+    local bestKey, bestLen
+    for baseKey in pairs(index.bases) do
+        if baseKey ~= "" and Util.HasPhrase(norm, baseKey) then
+            if not bestLen or #baseKey > bestLen then
+                bestKey, bestLen = baseKey, #baseKey
+            end
+        end
+    end
+    if not bestKey then return nil end
+    return bestKey, index.bases[bestKey]
 end
 
 function Matcher.Match(raw, norm, index)

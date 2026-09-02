@@ -37,6 +37,7 @@ Explicitly out of scope for v1:
 | `CastSpellByName` | Protected | Cannot open the JC window from insecure code |
 | `GetNumTradeSkills` | Returns 0 when window closed | Scanning requires the window open |
 | Tradeskill list | Filtered by the window's active filters | Filters must be cleared before scanning or the book is partial |
+| `SendChatMessage` to a channel | Protected, needs a hardware event | **Automatic timed barking is impossible.** The timer can only remind; a key or click must send |
 | Trade window | Readable, not writable, by addons | Order state is inferred from trade contents, never injected |
 | Lua interpreter | Not installed on dev machine | Tests run in game via `/cm test` |
 
@@ -315,6 +316,19 @@ Every word list, weight, and threshold lives in saved variables and is editable 
 Note on the guard selections: barking continues when the party is full, because that was left unchecked deliberately. Invites still stop at the cap, since `InviteUnit` would simply fail. That is a functional limit, not a preference.
 
 ## 11. Barker
+
+### 11.0 Correction: the timer cannot send
+
+The original design assumed a `C_Timer.NewTicker` could post the bark. It cannot. `SendChatMessage` to a public channel is protected on this client and only succeeds during a hardware event. A timer callback is not one, and the attempt raises `ADDON_ACTION_BLOCKED` with `SendChatMessage` on the stack. This was found in testing, not predicted, and it explains why TradeBarker only ever shipped a manual Send button.
+
+The shipped model is therefore:
+
+- The ticker calls `Barker.Alert()`, which checks the guards, sets `Barker.pending`, plays a sound and prints "bark ready". It sends nothing.
+- `Barker.Tick(true)` does the actual send and is only ever reached from a hardware event: the `CUTMASTER_BARK` key binding, the Bark Now button, the minimap right click, or `/cm send`.
+
+Simulating a hardware event from Lua is not possible; the check sits below the Lua layer. External input automation is out of scope and against the game's terms.
+
+### 11.1 Rotation and fitting
 
 - Rotation cursor over every book entry with `advertise = true`, in stable order (category, then name).
 - Each tick builds a message from `template`, substituting `{gems}`. Links are appended greedily while total length stays at or under 255. The cursor advances by however many actually fit, wrapping at the end.

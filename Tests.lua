@@ -396,3 +396,187 @@ T.Case("BlockReason reports auto invite disabled", function()
     s.enabled = false
     T.Eq(ns.Inviter.BlockReason({}, 5000, 1, s), "invites disabled", "reason")
 end)
+
+local function barkEntries(n)
+    local out = {}
+    for i = 1, n do
+        local id = 24000 + i
+        out[i] = { itemID = id,
+            link = "|cffa335ee|Hitem:" .. id .. ":0:0:0:0:0:0:0|h[Bold Living Ruby]|h|r" }
+    end
+    return out
+end
+
+local BARK_TPL = "WTS JC cuts: {gems} and more! /w me"
+
+T.Case("Barker.Fit stays within the 255 character cap", function()
+    local msg = ns.Barker.Fit(barkEntries(40), 1, BARK_TPL, 255, 4)
+    T.Eq(msg ~= nil, true, "message built")
+    T.Eq(#msg <= 255, true, "within cap, got " .. #msg)
+end)
+
+T.Case("Barker.Fit advances the cursor by the number used", function()
+    local _, nextCursor, used = ns.Barker.Fit(barkEntries(40), 1, BARK_TPL, 255, 4)
+    T.Eq(used >= 2, true, "at least two links fit")
+    T.Eq(nextCursor, 1 + used, "cursor advanced by used")
+end)
+
+T.Case("Barker.Fit wraps at the end of the list", function()
+    local entries = barkEntries(5)
+    local _, nextCursor, used = ns.Barker.Fit(entries, 4, BARK_TPL, 255, 4)
+    T.Eq(used > 0, true, "something was used")
+    T.Eq(nextCursor <= #entries, true, "cursor wrapped into range, got " .. nextCursor)
+end)
+
+T.Case("Barker.Fit honours perBark", function()
+    local _, _, used = ns.Barker.Fit(barkEntries(40), 1, BARK_TPL, 255, 2)
+    T.Eq(used, 2, "capped at perBark")
+end)
+
+T.Case("Barker.Fit rejects a template without the gems placeholder", function()
+    T.Eq(ns.Barker.Fit(barkEntries(5), 1, "WTS JC cuts, no placeholder", 255, 4), nil, "rejected")
+end)
+
+T.Case("Barker.Fit returns nil for an empty list", function()
+    T.Eq(ns.Barker.Fit({}, 1, BARK_TPL, 255, 4), nil, "nil")
+end)
+
+local function classifyWhisper(text, over)
+    over = over or {}
+    local index = ns.Matcher.BuildIndex(over.book or fixtureBook())
+    local norm = ns.Util.Normalize(text)
+    local filter = ns.DeepCopy(ns.Defaults.settings.filter)
+    filter.requireBuyerSignal = false
+    return ns.Classifier.Evaluate({
+        norm = norm,
+        raw = text,
+        matched = ns.Matcher.Match(text, norm, index),
+        linkCount = #ns.Util.ExtractItemIDs(text),
+        hasDesignLink = false,
+        isRepeat = false,
+        isWhisper = true,
+        filter = filter,
+    })
+end
+
+T.Case("Whisper naming a bare gem is a request", function()
+    T.Eq(classifyWhisper(RUBY_LINK).verdict, "invite", "bare link in whisper invites")
+    T.Eq(classifyWhisper("bold living ruby please").verdict, "invite", "plain text")
+end)
+
+T.Case("Whisper does not penalise a customer listing several gems", function()
+    local three = RUBY_LINK .. " " .. RUBY_LINK:gsub("24033", "24048")
+        .. " " .. RUBY_LINK:gsub("24033", "23096")
+    local r = classifyWhisper("can you do " .. three)
+    T.Eq(r.sellerHits.manyLinks, nil, "manyLinks suppressed in whispers")
+    T.Eq(r.verdict, "invite", "verdict")
+end)
+
+T.Case("Whisper still vetoes someone selling to us", function()
+    T.Eq(classifyWhisper("WTS " .. RUBY_LINK .. " 300g").verdict, "vetoed", "wts veto holds")
+    T.Eq(classifyWhisper("JC LFW " .. RUBY_LINK).verdict, "vetoed", "lfw veto holds")
+end)
+
+local function qualityBook()
+    return {
+        [24033] = { itemID = 24033, name = "Bold Living Ruby",           classID = 3, quality = 3 },
+        [32196] = { itemID = 32196, name = "Bold Crimson Spinel",        classID = 3, quality = 4 },
+        [20969] = { itemID = 20969, name = "Lustrous Azure Moonstone",   classID = 3, quality = 2 },
+        [10978] = { itemID = 10978, name = "A Falling Star",             classID = 3, quality = 2 },
+        [25500] = { itemID = 25500, name = "Braided Copper Ring",        classID = 4, quality = 1 },
+    }
+end
+
+T.Case("ApplyAdvertiseFilter rare keeps only rare and epic gems", function()
+    local book = qualityBook()
+    local n = ns.Barker.ApplyAdvertiseFilter(book, "rare")
+    T.Eq(n, 2, "count")
+    T.Eq(book[24033].advertise, true, "rare gem kept")
+    T.Eq(book[32196].advertise, true, "epic gem kept")
+    T.Eq(book[20969].advertise, false, "uncommon gem dropped")
+    T.Eq(book[10978].advertise, false, "vanilla junk dropped")
+    T.Eq(book[25500].advertise, false, "non gem dropped")
+end)
+
+T.Case("ApplyAdvertiseFilter all and none are absolute", function()
+    local book = qualityBook()
+    T.Eq(ns.Barker.ApplyAdvertiseFilter(book, "all"), 5, "all")
+    T.Eq(ns.Barker.ApplyAdvertiseFilter(book, "none"), 0, "none")
+end)
+
+T.Case("SetAdvertiseMatching toggles by name substring", function()
+    local book = qualityBook()
+    ns.Barker.ApplyAdvertiseFilter(book, "none")
+    T.Eq(ns.Barker.SetAdvertiseMatching(book, "crimson spinel", true), 1, "matched one")
+    T.Eq(book[32196].advertise, true, "enabled")
+    T.Eq(book[24033].advertise, false, "others untouched")
+end)
+
+T.Case("ApplyAdvertiseFilter epic keeps only epic gems", function()
+    local book = qualityBook()
+    local n = ns.Barker.ApplyAdvertiseFilter(book, "epic")
+    T.Eq(n, 1, "count")
+    T.Eq(book[32196].advertise, true, "epic gem kept")
+    T.Eq(book[24033].advertise, false, "rare gem dropped")
+    T.Eq(book[20969].advertise, false, "uncommon gem dropped")
+end)
+
+T.Case("NearMiss finds a known gem family from an unknown cut", function()
+    local book = fixtureBook()
+    book[24099] = { itemID = 24099, name = "Glowing Living Ruby", match = true, aliases = {} }
+    local index = ns.Matcher.BuildIndex(book)
+    local norm = ns.Util.Normalize("can you do a Sparkling Living Ruby?")
+    T.Eq(#ns.Matcher.Match("x", norm, index), 0, "no direct match")
+    local family, ids = ns.Matcher.NearMiss(norm, index)
+    T.Eq(family, "living ruby", "family")
+    T.Eq(#ids, 3, "three known cuts of that family")
+end)
+
+T.Case("NearMiss returns nothing for unrelated text", function()
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    T.Eq(ns.Matcher.NearMiss(ns.Util.Normalize("lfg deadmines"), index), nil, "no family")
+end)
+
+T.Case("NearMiss prefers the longest matching family", function()
+    local book = {
+        [1] = { itemID = 1, name = "Balanced Shadowsong Amethyst", match = true, aliases = {} },
+        [2] = { itemID = 2, name = "Bold Amethyst", match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    local family = ns.Matcher.NearMiss(
+        ns.Util.Normalize("wtb shifting shadowsong amethyst"), index)
+    T.Eq(family, "shadowsong amethyst", "longest family wins")
+end)
+
+T.Case("Classifier invites a bare LF JC with no gem named", function()
+    local r = classify("LF JC")
+    T.Eq(r.verdict, "invite", "verdict")
+    T.Eq(r.reason, "jc request", "reason")
+    T.Eq(r.professionRequest, true, "flagged as a profession request")
+end)
+
+T.Case("Classifier invites other ways of asking for a jeweller", function()
+    T.Eq(classify("anyone know a jc online?").verdict, "invite", "jc online")
+    T.Eq(classify("need a jewelcrafter for some cuts").verdict, "invite", "need a jewelcrafter")
+end)
+
+T.Case("Classifier vetoes a competitor even when the text reads as a JC request", function()
+    -- "any jc" makes this gem-relevant, so it reaches scoring, and the veto
+    -- must still beat it. Word order keeps LF JC and JC LFW distinct.
+    local r = classify("any jc lfw here, all cuts available")
+    T.Eq(r.verdict, "vetoed", "verdict")
+    T.Eq(r.reason, "lfw", "veto wins over the profession request")
+end)
+
+T.Case("Competitor ad naming no gem is ignored rather than vetoed", function()
+    -- Correct outcome, just a different label: it never reaches the veto list
+    -- because it is out of scope. Keeping vetoes scoped to gem-relevant
+    -- messages is what stops every WTS in trade chat filling the log.
+    local r = classify("JC LFW all cuts available pst")
+    T.Eq(r.verdict, "lowscore", "not invited")
+    T.Eq(r.reason, "no gem match", "out of scope before vetoes are consulted")
+end)
+
+T.Case("Classifier ignores requests for other professions", function()
+    T.Eq(classify("LF enchanter for boots").reason, "no gem match", "not our trade")
+end)

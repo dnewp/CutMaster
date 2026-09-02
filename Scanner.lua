@@ -21,6 +21,7 @@ function Scanner.MergeBook(oldBook, scanned)
             link = s.link,
             header = s.header,
             classID = s.classID,
+            quality = s.quality,
             reagents = s.reagents or {},
         }
         if prev then
@@ -115,13 +116,14 @@ local function CollectRows()
             local link = GetTradeSkillItemLink(idx)
             local itemID = link and tonumber(link:match("|Hitem:(%d+)"))
             if itemID then
-                local name, _, _, _, _, _, _, _, _, _, _, classID = GetItemInfo(link)
+                local name, _, quality, _, _, _, _, _, _, _, _, classID = GetItemInfo(link)
                 rows[#rows + 1] = {
                     itemID = itemID,
                     name = name or skillName,
                     link = link,
                     header = header or "Other",
                     classID = classID,
+                    quality = quality,
                     reagents = ReadReagents(idx),
                 }
             else
