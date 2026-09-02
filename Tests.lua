@@ -929,3 +929,21 @@ T.Case("NearMiss reports whether the family name was complete", function()
     T.Eq(exact2, false, "amethyst missing, so the name is incomplete")
     T.Eq(#ids, 1, "one known cut in that family")
 end)
+
+T.Case("The master switch reports itself as enabled by default", function()
+    local saved = ns.db.settings.enabled
+    ns.db.settings.enabled = true
+    T.Eq(ns.Enabled(), true, "on")
+    ns.db.settings.enabled = false
+    T.Eq(ns.Enabled(), false, "off")
+    ns.db.settings.enabled = saved
+end)
+
+T.Case("Barking refuses while the addon is disabled", function()
+    local saved = ns.db.settings.enabled
+    ns.db.settings.enabled = false
+    local ok, reason = ns.Barker.Tick(true)
+    T.Eq(ok, false, "even a forced bark is refused")
+    T.Eq(reason, "CutMaster is disabled", "reason")
+    ns.db.settings.enabled = saved
+end)

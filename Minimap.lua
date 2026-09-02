@@ -35,6 +35,9 @@ function M.Init()
                 end
             end
             tt:AddLine("CutMaster")
+            if not ns.Enabled() then
+                tt:AddLine("|cffff4444DISABLED|r")
+            end
             tt:AddLine(string.format("|cffffffff%d|r recipes, |cffffffff%d|r gems, "
                 .. "|cffffffff%d|r advertised", n, gems, #ns.Barker.AdvertisedEntries()))
             tt:AddLine(string.format("|cffffffff%d|r open orders",

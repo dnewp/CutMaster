@@ -15,6 +15,13 @@ function ns.Print(msg)
     frame:AddMessage("|cff33ff99CutMaster|r: " .. tostring(msg))
 end
 
+-- Master switch. False means CutMaster takes no action of its own: no
+-- invites, no whispers, no barking, no order creation, no filling trades.
+-- Reading the UI, scanning, and the /cm try commands still work.
+function ns.Enabled()
+    return not ns.db or ns.db.settings.enabled ~= false
+end
+
 function ns.DeepCopy(t)
     if type(t) ~= "table" then return t end
     local out = {}
@@ -144,6 +151,7 @@ ns.Defaults = {
             promptOnDone = true,
             keepDoneDays = 30,
         },
+        enabled = true,
         gemStats = true,
         captureAll = false,
         outputFrame = 1,
@@ -175,7 +183,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         CutMasterDB = CutMasterDB or {}
         ns.ApplyDefaults(CutMasterDB, ns.Defaults)
         ns.db = CutMasterDB
-        if ns.db.settings.bark.enabled then ns.Barker.Start() end
+        if ns.db.settings.bark.enabled and ns.Enabled() then ns.Barker.Start() end
+        if not ns.Enabled() then
+            ns.Print("|cffff9900currently disabled.|r /cm enable to switch back on.")
+        end
         if ns.Minimap and ns.Minimap.Init then ns.Minimap.Init() end
         if ns.db.settings.tracker.shown then
             C_Timer.After(1, function() ns.Tracker.Show() end)
@@ -292,6 +303,26 @@ local function HandleSlash(input)
             ns.Print("barking " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
             if s.enabled then ns.Barker.Start(true) else ns.Barker.Stop() end
         end
+    elseif cmd == "disable" or cmd == "off" then
+        ns.db.settings.enabled = false
+        ns.Barker.Stop()
+        ns.Print("|cffff4444disabled.|r No invites, whispers, barks or trade "
+            .. "filling until /cm enable.")
+    elseif cmd == "enable" or cmd == "on" then
+        -- Disabling only flips this one flag, so nothing else needs restoring:
+        -- every individual setting was left exactly as it was.
+        ns.db.settings.enabled = true
+        local s = ns.db.settings
+        if s.bark.enabled then ns.Barker.Start() end
+        ns.Print("|cff44ff44enabled.|r Back to: auto invite "
+            .. (s.invite.enabled and "|cff44ff44on|r" or "|cffff4444off|r")
+            .. ", whisper invites "
+            .. (s.invite.fromWhisper and "|cff44ff44on|r" or "|cffff4444off|r")
+            .. ", barking "
+            .. (s.bark.enabled and ("|cff44ff44on|r every " .. s.bark.intervalSec .. "s")
+                or "|cffff4444off|r")
+            .. ", trade fill "
+            .. (s.orders.autoFillTrade and "|cff44ff44on|r" or "|cffff4444off|r"))
     elseif cmd == "stats" then
         ns.Stats.Toggle()
     elseif cmd == "tracker" then
@@ -425,6 +456,9 @@ local function HandleSlash(input)
         local age = ns.db.bookScannedAt > 0
             and math.floor(((GetServerTime and GetServerTime() or time())
                 - ns.db.bookScannedAt) / 60) or -1
+        if not ns.Enabled() then
+            ns.Print("|cffff4444CutMaster is disabled.|r /cm enable to switch it on.")
+        end
         ns.Print(string.format("auto invite %s   barking %s (%ds, timer %s)   capture %s   debug %s",
             onoff(s.invite.enabled), onoff(s.bark.enabled), s.bark.intervalSec,
             ns.Barker.ticker and "running" or "stopped",
@@ -492,7 +526,8 @@ local function HandleSlash(input)
         ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
         ns.Print("  /cm orders, /cm order add|done|cancel, /cm tracker, /cm income,")
         ns.Print("  /cm stats,")
-        ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test")
+        ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test,")
+        ns.Print("  /cm disable, /cm enable")
     end
 end
 

@@ -30,6 +30,7 @@ local function DoInvite(name)
 end
 
 function Inviter.Invite(name, matched)
+    if not ns.Enabled() then return end
     local short = name:gsub("%-.*", "")
     local settings = ns.db.settings.invite
     local now = GetServerTime and GetServerTime() or time()
@@ -70,6 +71,7 @@ end
 -- Whispers are not protected the way public channel messages are, so this
 -- works from an event handler.
 function Inviter.Say(name, template, vars)
+    if not ns.Enabled() then return false end
     if not template or template == "" then return false end
     local now = GetServerTime and GetServerTime() or time()
     local state = ns.Players.Get(ns.db, name)

@@ -117,6 +117,8 @@ Three limits are imposed by WoW itself, not by CutMaster. They are worth knowing
 ### General
 | Command | Effect |
 |---|---|
+| `/cm disable` | Turn everything off: no invites, whispers, barks, order creation or trade filling |
+| `/cm enable` | Turn it all back on, exactly as it was |
 | `/cm` | Open or close the main window |
 | `/cm config` | Same |
 | `/cm status` | Every toggle, book age, buffer counts |
@@ -206,6 +208,9 @@ The settings most worth knowing:
 - `filter.netThreshold` (default 3) is how much net seller evidence blocks an invite.
 - `invite.whisper.autoSuggest` (default off) offers alternatives when you lack a cut. Off because it reads as a sales pitch.
 - `orders.autoFillTrade` (default on) loads the trade window for you.
+- `enabled` (default on) is the master switch behind `/cm disable`.
+
+`/cm disable` is the quickest way to go quiet without losing your setup. It flips a single flag and stops the bark timer; every other setting is left alone, so `/cm enable` restores exactly what you had. While disabled the UI, scanning, gem stats and the `/cm try` commands still work, and the window, minimap tooltip and a login message all say so, since a silent addon and a broken one look identical otherwise.
 
 ---
 

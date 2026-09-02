@@ -34,6 +34,10 @@ function Events.Process(text, author, source, opts)
     local short = (author or ""):gsub("%-.*", "")
     if short == "" then return end
 
+    -- Master switch. /cm try still works so the classifier can be tested
+    -- while the addon is otherwise silent.
+    if not opts.dryRun and not ns.Enabled() then return end
+
     local isWhisper = (source == "whisper")
     local isParty = (source == "party")
     -- Directed at us rather than broadcast to a channel.

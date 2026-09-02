@@ -87,6 +87,23 @@ function UI.Create()
     end)
     UI.barkButton = bark
 
+    -- Master switch, next to Bark Now, so a silent addon is never mistaken
+    -- for a broken one.
+    local power = Button(f, "Disable", 70, 22)
+    power:SetPoint("TOPRIGHT", bark, "TOPLEFT", -6, 0)
+    power:SetScript("OnClick", function()
+        ns.db.settings.enabled = not ns.Enabled()
+        if ns.Enabled() then
+            if ns.db.settings.bark.enabled then ns.Barker.Start() end
+            ns.Print("|cff44ff44enabled.|r")
+        else
+            ns.Barker.Stop()
+            ns.Print("|cffff4444disabled.|r")
+        end
+        UI.Refresh()
+    end)
+    UI.enableButton = power
+
     UI.tabs, UI.pages = {}, {}
     local names = { "Book", "Bark", "Orders", "Income", "Filter", "Log", "Invite" }
     for i, name in ipairs(names) do
@@ -140,6 +157,16 @@ function UI.Refresh()
             if e.classID == 3 then gems = gems + 1 end
         end
     end
+    if not ns.Enabled() then
+        UI.status:SetText("|cffff4444DISABLED|r  "
+            .. "|cff888888no invites, whispers, barks or trade filling. "
+            .. "Click Enable.|r")
+        if UI.enableButton then UI.enableButton.text:SetText("Enable") end
+        if UI.current == 1 and UI.RefreshBook then UI.RefreshBook() end
+        if UI.current == 3 and UI.RefreshOrders then UI.RefreshOrders() end
+        return
+    end
+    if UI.enableButton then UI.enableButton.text:SetText("Disable") end
     UI.status:SetText(string.format(
         "%d recipes (%d gems)  |  advertising %d  |  %d open orders  |  bark %s  |  invite %s%s",
         n, gems, #ns.Barker.AdvertisedEntries(), #ns.Orders.OpenList(),

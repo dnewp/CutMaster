@@ -81,6 +81,7 @@ end
 
 function Barker.BlockReason()
     local s = ns.db.settings.bark
+    if not ns.Enabled() then return "CutMaster is disabled" end
     if not s.enabled then return "disabled" end
     if s.pauseCombat and (InCombatLockdown() or UnitAffectingCombat("player")) then
         return "in combat"
@@ -92,6 +93,9 @@ end
 
 function Barker.Tick(force)
     local s = ns.db.settings.bark
+
+    -- Even a forced bark respects the master switch.
+    if not ns.Enabled() then return false, "CutMaster is disabled" end
 
     if not force then
         local blocked = Barker.BlockReason()

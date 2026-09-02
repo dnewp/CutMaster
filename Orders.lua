@@ -223,6 +223,7 @@ end
 
 -- Promote anyone who has now actually joined the group.
 function Orders.PromoteGrouped(now)
+    if not ns.Enabled() then return 0 end
     local promoted = 0
     for _, o in ipairs(ns.db.orders) do
         if o.status == "pending" and (UnitInParty(o.player) or UnitInRaid(o.player)) then

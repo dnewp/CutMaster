@@ -49,6 +49,7 @@ function Trade.Classify(snapshot, book)
 end
 
 local function Commit(snapshot)
+    if not ns.Enabled() then return end
     local now = GetServerTime and GetServerTime() or time()
     local player = snapshot.partner
     if not player then return end
@@ -170,6 +171,7 @@ end
 
 function Trade.AutoFill()
     Trade.StopFill()
+    if not ns.Enabled() then return end
     if not ns.db.settings.orders.autoFillTrade then return end
 
     local order = Trade.partner and ns.Orders.Open(Trade.partner)
