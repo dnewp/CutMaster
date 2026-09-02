@@ -215,3 +215,137 @@ T.Case("QtyHint reads leading and trailing counts", function()
     T.Eq(ns.Matcher.QtyHint("wtb two bold living ruby", "bold living ruby"), 2, "word number")
     T.Eq(ns.Matcher.QtyHint("wtb bold living ruby", "bold living ruby"), nil, "no hint")
 end)
+
+T.Case("Players.Similar ignores digit differences", function()
+    T.Eq(ns.Players.Similar("wts jc cuts 5g", "wts jc cuts 7g"), true, "price change")
+    T.Eq(ns.Players.Similar("wts jc cuts", "wtb bold ruby"), false, "different text")
+end)
+
+T.Case("Players.Observe flags a repeated ad inside the window", function()
+    local msg = "wts jc cuts all cuts avail pst"
+    local st, rep = ns.Players.Observe(nil, msg, 1000, 600)
+    T.Eq(rep, false, "first sighting")
+    T.Eq(st.flaggedSeller, nil, "not yet flagged")
+    st, rep = ns.Players.Observe(st, msg, 1100, 600)
+    T.Eq(rep, true, "repeat detected")
+    T.Eq(st.flaggedSeller, true, "flagged")
+end)
+
+T.Case("Players.Observe does not flag outside the window", function()
+    local msg = "wts jc cuts all cuts avail pst"
+    local st = ns.Players.Observe(nil, msg, 1000, 600)
+    local _, rep = ns.Players.Observe(st, msg, 2000, 600)
+    T.Eq(rep, false, "too far apart")
+end)
+
+T.Case("Players.Observe does not flag differing messages", function()
+    local st = ns.Players.Observe(nil, "wtb bold ruby", 1000, 600)
+    local st2, rep = ns.Players.Observe(st, "wtb runed ruby too", 1100, 600)
+    T.Eq(rep, false, "different message")
+    T.Eq(st2.flaggedSeller, nil, "not flagged")
+end)
+
+local function classify(text, over)
+    over = over or {}
+    local index = ns.Matcher.BuildIndex(over.book or fixtureBook())
+    local norm = ns.Util.Normalize(text)
+    return ns.Classifier.Evaluate({
+        norm = norm,
+        raw = text,
+        matched = ns.Matcher.Match(text, norm, index),
+        linkCount = #ns.Util.ExtractItemIDs(text),
+        hasDesignLink = over.hasDesignLink or false,
+        isRepeat = over.isRepeat or false,
+        playerState = over.playerState,
+        blocked = over.blocked,
+        filter = over.filter or ns.DeepCopy(ns.Defaults.settings.filter),
+    })
+end
+
+T.Case("Classifier vetoes JC LFW", function()
+    local r = classify("JC LFW all cuts pst " .. RUBY_LINK)
+    T.Eq(r.verdict, "vetoed", "verdict")
+    T.Eq(r.reason, "lfw", "reason")
+end)
+
+T.Case("Classifier vetoes a WTS advertisement", function()
+    local r = classify("WTS " .. RUBY_LINK .. " 5g")
+    T.Eq(r.verdict, "vetoed", "verdict")
+    T.Eq(r.reason, "wts", "reason")
+end)
+
+T.Case("Classifier vetoes LF work", function()
+    T.Eq(classify("LF work jewelcrafter all cuts avail " .. RUBY_LINK).verdict, "vetoed", "verdict")
+end)
+
+T.Case("Classifier blocks can cut advertisements by score", function()
+    local r = classify("Can cut any cut, mats + tip " .. RUBY_LINK)
+    T.Eq(r.verdict, "lowscore", "not a veto")
+    T.Eq(r.sellerScore >= 3, true, "seller score at or above threshold")
+end)
+
+T.Case("Classifier invites when can cut is guarded by anyone", function()
+    T.Eq(classify("anyone who can cut " .. RUBY_LINK .. "? have mats").verdict, "invite", "verdict")
+end)
+
+T.Case("Classifier invites a plain WTB", function()
+    T.Eq(classify("WTB bold ruby have mats").verdict, "invite", "verdict")
+end)
+
+T.Case("Classifier invites a question form request", function()
+    T.Eq(classify("any jc able to cut " .. RUBY_LINK .. "?").verdict, "invite", "verdict")
+end)
+
+T.Case("Classifier invites LF plus will tip", function()
+    T.Eq(classify("LF " .. RUBY_LINK .. " will tip").verdict, "invite", "verdict")
+end)
+
+T.Case("Classifier withholds an invite for a bare link", function()
+    local r = classify(RUBY_LINK)
+    T.Eq(r.verdict, "lowscore", "verdict")
+    T.Eq(r.buyerScore, 0, "no buyer signal")
+end)
+
+T.Case("Classifier invites a bare link when requireBuyerSignal is off", function()
+    local filter = ns.DeepCopy(ns.Defaults.settings.filter)
+    filter.requireBuyerSignal = false
+    T.Eq(classify(RUBY_LINK, { filter = filter }).verdict, "invite", "verdict")
+end)
+
+T.Case("Classifier scores manyLinks against three or more links", function()
+    local three = RUBY_LINK .. " " .. RUBY_LINK:gsub("24033", "24048")
+        .. " " .. RUBY_LINK:gsub("24033", "23096")
+    T.Eq(classify("gems available " .. three).sellerHits.manyLinks, 3, "manyLinks weight")
+end)
+
+T.Case("Classifier scores a design link heavily", function()
+    local r = classify("check these out " .. RUBY_LINK, { hasDesignLink = true })
+    T.Eq(r.sellerHits.designLink, 4, "designLink weight")
+end)
+
+T.Case("Classifier applies the repeat bark weight", function()
+    local r = classify("gems here " .. RUBY_LINK, { isRepeat = true })
+    T.Eq(r.sellerHits.repeatBark, 5, "repeatBark weight")
+end)
+
+T.Case("Classifier vetoes a previously flagged seller", function()
+    local r = classify("WTB bold ruby have mats", { playerState = { flaggedSeller = true } })
+    T.Eq(r.verdict, "vetoed", "verdict")
+    T.Eq(r.reason, "flagged seller", "reason")
+end)
+
+T.Case("Classifier honours a caller supplied block", function()
+    local r = classify("WTB bold ruby have mats", { blocked = "cooldown" })
+    T.Eq(r.verdict, "vetoed", "verdict")
+    T.Eq(r.reason, "cooldown", "reason")
+end)
+
+T.Case("Classifier does not fire without a gem match", function()
+    local r = classify("WTB a mount have gold")
+    T.Eq(r.verdict, "lowscore", "verdict")
+    T.Eq(r.reason, "no gem match", "reason")
+end)
+
+T.Case("Classifier does not match boldly as a gem", function()
+    T.Eq(classify("boldly going where no one has gone before").reason, "no gem match", "reason")
+end)

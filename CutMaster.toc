@@ -10,4 +10,6 @@ Core.lua
 Util.lua
 Scanner.lua
 Matcher.lua
+Players.lua
+Classifier.lua
 Tests.lua
