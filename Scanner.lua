@@ -161,6 +161,7 @@ function Scanner.Scan(opts)
         ns.db.bookDirty = false
 
         if ns.Events then ns.Events.RebuildIndex() end
+        if ns.Stats then ns.Stats.Annotate(book) end
 
         RestoreFilters(saved)
 

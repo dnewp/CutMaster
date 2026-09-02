@@ -17,6 +17,10 @@ end
 
 function T.Run()
     local pass, fail = 0, 0
+    -- Written to SavedVariables so failures can be read off disk after a
+    -- /reload instead of being retyped out of the chat frame.
+    ns.db.lastTestRun = { at = GetServerTime and GetServerTime() or time(), failures = {} }
+
     for _, c in ipairs(T.cases) do
         local ok, err = pcall(c.fn)
         if ok then
@@ -24,8 +28,12 @@ function T.Run()
         else
             fail = fail + 1
             ns.Print("|cffff4444FAIL|r " .. c.name .. " => " .. tostring(err))
+            local f = ns.db.lastTestRun.failures
+            f[#f + 1] = { name = c.name, err = tostring(err) }
         end
     end
+    ns.db.lastTestRun.passed = pass
+    ns.db.lastTestRun.failed = fail
     ns.Print(string.format("Tests: |cff44ff44%d passed|r, %s%d failed|r",
         pass, fail > 0 and "|cffff4444" or "|cff44ff44", fail))
     return pass, fail
@@ -160,15 +168,15 @@ end)
 local function fixtureBook()
     return {
         [24033] = { itemID = 24033, name = "Bold Living Ruby",
-                    classID = 3, match = true, aliases = {} },
+                    classID = 3, bindType = 0, match = true, aliases = {} },
         [24048] = { itemID = 24048, name = "Runed Living Ruby",
-                    classID = 3, match = true, aliases = {} },
+                    classID = 3, bindType = 0, match = true, aliases = {} },
         [24028] = { itemID = 24028, name = "Solid Star of Elune",
-                    classID = 3, match = true, aliases = {} },
+                    classID = 3, bindType = 0, match = true, aliases = {} },
         [23096] = { itemID = 23096, name = "Great Golden Draenite",
-                    classID = 3, match = true, aliases = {} },
+                    classID = 3, bindType = 0, match = true, aliases = {} },
         [99999] = { itemID = 99999, name = "Hidden Cut Gem",
-                    classID = 3, match = false, aliases = {} },
+                    classID = 3, bindType = 0, match = false, aliases = {} },
     }
 end
 
@@ -820,4 +828,104 @@ end)
 
 T.Case("ExtractItemLinks copes with no links", function()
     T.Eq(#ns.Util.ExtractItemLinks("got both?"), 0, "none")
+end)
+
+local ASK = ns.Defaults.settings.filter.askPhrases
+
+T.Case("IsAvailabilityQuestion spots a direct question", function()
+    local function q(t) return ns.Util.IsAvailabilityQuestion(t, ns.Util.Normalize(t), ASK) end
+    T.Eq(q("Do you have veiled pyrestone cut?"), true, "do you have")
+    T.Eq(q("got [Bold Crimson Spinel]?"), true, "got")
+    T.Eq(q("can you cut this one?"), true, "can you cut")
+    T.Eq(q("any chance you have a bold ruby?"), true, "any chance")
+end)
+
+T.Case("IsAvailabilityQuestion ignores someone thinking out loud", function()
+    local function q(t) return ns.Util.IsAvailabilityQuestion(t, ns.Util.Normalize(t), ASK) end
+    -- The real message that got auto-answered with a sales pitch.
+    T.Eq(q("do why are so many cuts less expensive than [Crimson Spinel]"), false,
+        "no question mark and no availability phrase")
+    T.Eq(q("hey whats up?"), false, "question mark alone is not enough")
+    T.Eq(q("i have all the cuts"), false, "no question mark")
+end)
+
+T.Case("RecentText stitches together what someone just said", function()
+    local st = {}
+    ns.Players.PushRecent(st, "Shifting Shadowsong?", 1000)
+    ns.Players.PushRecent(st, "Amethyst", 1010)
+    T.Eq(ns.Players.RecentText(st, 1015, 90), "Shifting Shadowsong? Amethyst", "joined")
+    T.Eq(ns.Players.RecentText(st, 2000, 90), "", "old messages drop out")
+end)
+
+T.Case("A gem named across two messages matches once combined", function()
+    local book = {
+        [32637] = { itemID = 32637, name = "Balanced Shadowsong Amethyst",
+                    classID = 3, bindType = 0, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    -- A cut prefix on its own is not enough: loose matching needs the prefix
+    -- AND a base word, so "Balanced" alone finds nothing.
+    T.Eq(#ns.Matcher.Match("x", ns.Util.Normalize("Balanced"), index), 0,
+        "first fragment matches nothing")
+    T.Eq(#ns.Matcher.Match("x", ns.Util.Normalize("Shadowsong Amethyst"), index), 0,
+        "second fragment alone has no cut prefix")
+    local combined = "Balanced Shadowsong Amethyst"
+    T.Eq(#ns.Matcher.Match(combined, ns.Util.Normalize(combined), index), 1,
+        "the two together resolve to one cut")
+end)
+
+T.Case("NearMiss recognises a single distinctive family word", function()
+    local book = {
+        [1] = { itemID = 1, name = "Balanced Shadowsong Amethyst",
+                classID = 3, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    local family = ns.Matcher.NearMiss(ns.Util.Normalize("shifting shadowsong?"), index)
+    T.Eq(family, "shadowsong", "partial family name recognised")
+end)
+
+T.Case("NearMiss does not fire on short common words", function()
+    local book = {
+        [1] = { itemID = 1, name = "Solid Star of Elune",
+                classID = 3, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    T.Eq(ns.Matcher.NearMiss(ns.Util.Normalize("look at that star"), index), nil,
+        "star is too short and too common")
+end)
+
+T.Case("OpenList only counts people who actually joined", function()
+    local saved = ns.db.orders
+    ns.db.orders = {
+        { id = 1, player = "A", status = "pending",   items = {} },
+        { id = 2, player = "B", status = "grouped",   items = {} },
+        { id = 3, player = "C", status = "mats",      items = {} },
+        { id = 4, player = "D", status = "done",      items = {} },
+        { id = 5, player = "E", status = "cancelled", items = {} },
+    }
+    T.Eq(#ns.Orders.OpenList(), 2, "grouped and mats only")
+    T.Eq(#ns.Orders.ActiveList(), 3, "pending included in the full picture")
+    T.Eq(ns.Orders.PendingCount(), 1, "one still waiting to join")
+    T.Eq(ns.Orders.ByID(3).player, "C", "lookup by id")
+    ns.db.orders = saved
+end)
+
+T.Case("NearMiss reports whether the family name was complete", function()
+    local book = {
+        [1] = { itemID = 1, name = "Balanced Shadowsong Amethyst",
+                classID = 3, match = true, aliases = {} },
+        [2] = { itemID = 2, name = "Potent Pyrestone",
+                classID = 3, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+
+    local _, _, exact = ns.Matcher.NearMiss(
+        ns.Util.Normalize("do you have veiled pyrestone cut?"), index)
+    T.Eq(exact, true, "pyrestone is the whole family name, so they finished")
+
+    local fam, ids, exact2 = ns.Matcher.NearMiss(
+        ns.Util.Normalize("shifting shadowsong?"), index)
+    T.Eq(fam, "shadowsong", "family")
+    T.Eq(exact2, false, "amethyst missing, so the name is incomplete")
+    T.Eq(#ids, 1, "one known cut in that family")
 end)

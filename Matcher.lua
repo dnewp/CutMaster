@@ -20,13 +20,17 @@ local STOPWORDS = {
 -- Class 3 is Gem.
 local GEM_CLASS = 3
 
+-- Below this length a base word is too common to match on its own.
+local MIN_TOKEN_LEN = 7
+
 local WORDNUM = {
     one = 1, two = 2, three = 3, four = 4, five = 5,
     six = 6, seven = 7, eight = 8, nine = 9, ten = 10,
 }
 
 function Matcher.BuildIndex(book)
-    local index = { byID = {}, names = {}, aliases = {}, loose = {}, bases = {} }
+    local index = { byID = {}, names = {}, aliases = {}, loose = {},
+                    bases = {}, baseTokens = {} }
     for itemID, e in pairs(book or {}) do
         -- Bind on pickup cannot be delivered, so never invite for one. Leaving
         -- it out of the index also lets NearMiss suggest the cuts we can
@@ -62,6 +66,18 @@ function Matcher.BuildIndex(book)
                 index.bases[baseKey] = index.bases[baseKey] or {}
                 local list = index.bases[baseKey]
                 list[#list + 1] = itemID
+
+                -- Single distinctive words, so "Shifting Shadowsong?" is
+                -- recognisable without the customer finishing the name.
+                -- Length gate keeps out common words like "star" or "ruby"
+                -- that would fire on ordinary chat.
+                for _, tok in ipairs(bases) do
+                    if #tok >= MIN_TOKEN_LEN then
+                        index.baseTokens[tok] = index.baseTokens[tok] or {}
+                        local tl = index.baseTokens[tok]
+                        tl[#tl + 1] = itemID
+                    end
+                end
                 end
             end
 
@@ -91,8 +107,12 @@ function Matcher.QtyHint(norm, phrase)
     return nil
 end
 
--- Call only when Match found nothing. Returns the gem family named in the
--- message and the cuts of it we do know, or nil.
+-- Call only when Match found nothing. Returns the gem family named, the cuts
+-- of it we know, and whether the family name was COMPLETE.
+--
+-- Complete ("veiled pyrestone") means they finished naming a cut and it is not
+-- ours. Incomplete ("shifting shadowsong", missing "amethyst") means they are
+-- part way through and we should ask which one they meant.
 function Matcher.NearMiss(norm, index)
     local bestKey, bestLen
     for baseKey in pairs(index.bases) do
@@ -102,8 +122,13 @@ function Matcher.NearMiss(norm, index)
             end
         end
     end
-    if not bestKey then return nil end
-    return bestKey, index.bases[bestKey]
+    if bestKey then return bestKey, index.bases[bestKey], true end
+
+    -- Fall back to a single distinctive word from a gem family.
+    for tok, ids in pairs(index.baseTokens or {}) do
+        if Util.HasPhrase(norm, tok) then return tok, ids, false end
+    end
+    return nil
 end
 
 function Matcher.Match(raw, norm, index)

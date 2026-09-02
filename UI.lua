@@ -264,8 +264,9 @@ function UI.BuildBook(page)
                 row.entry.match = self:GetChecked() and true or false
                 ns.Events.RebuildIndex()
             end)
-            row.label:SetText(string.format("%s  |cff777777%s|r",
-                e.link or e.name or "?", e.header or ""))
+            row.label:SetText(string.format("%s  |cff777777%s|r%s",
+                e.link or e.name or "?", e.header or "",
+                e.stats and ("  |cff88ccff" .. e.stats .. "|r") or ""))
             row:Show()
         end
 
@@ -540,9 +541,13 @@ function UI.BuildInvite(page)
           label = "They asked for a cut you lack  |cff888888{gems} {player}|r" },
         { key = "partialTemplate",
           label = "They asked for several, you have some  |cff888888{have} {lack}|r" },
+        { key = "noneTemplate",
+          label = "They asked outright and you have nothing close" },
+        { key = "askWhichTemplate",
+          label = "They typed half a gem name  |cff888888{gems}|r" },
     }
 
-    local y = -206
+    local y = -196
     for _, t in ipairs(templates) do
         local lbl = Label(page, t.label)
         lbl:SetPoint("TOPLEFT", 0, y)
@@ -576,7 +581,7 @@ function UI.BuildInvite(page)
             box:SetText(d or "")
         end)
 
-        y = y - 42
+        y = y - 35
     end
 
     local hint = Label(page,

@@ -48,6 +48,18 @@ function Util.ExtractItemLinks(raw)
     return out
 end
 
+-- "Do you have veiled pyrestone cut?" deserves an answer. "why are so many
+-- cuts cheaper than [Crimson Spinel]" does not: it is someone thinking out
+-- loud, and replying to it is talking over the user. A question mark plus an
+-- availability phrase separates the two.
+function Util.IsAvailabilityQuestion(raw, norm, phrases)
+    if not raw or not raw:find("?", 1, true) then return false end
+    for _, p in ipairs(phrases or {}) do
+        if Util.HasPhrase(norm, p) then return true end
+    end
+    return false
+end
+
 function Util.HasPhrase(norm, phrase)
     if not norm or not phrase or phrase == "" then return false end
     return (" " .. norm .. " "):find(" " .. phrase .. " ", 1, true) ~= nil

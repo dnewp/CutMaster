@@ -14,6 +14,7 @@ Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
 Core.lua
 Util.lua
 Scanner.lua
+Stats.lua
 Matcher.lua
 Players.lua
 Classifier.lua

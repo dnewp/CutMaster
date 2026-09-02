@@ -54,6 +54,11 @@ function Tracker.Create()
     title:SetPoint("TOPLEFT", 8, -6)
     Tracker.title = title
 
+    local hint = ns.UI.Label(f,
+        "|cff666666tick as you cut, right click a name to cancel|r",
+        "GameFontDisableSmall")
+    hint:SetPoint("BOTTOMLEFT", 6, 2)
+
     local close = ns.UI.Button(f, "X", 18, 16)
     close:SetPoint("TOPRIGHT", -6, -5)
     close:SetScript("OnClick", function() Tracker.Hide() end)
@@ -64,7 +69,7 @@ function Tracker.Create()
 
     local scroll, content = ns.UI.ScrollList(f, -24, 6)
     scroll:SetPoint("TOPLEFT", 4, -24)
-    scroll:SetPoint("BOTTOMRIGHT", -24, 6)
+    scroll:SetPoint("BOTTOMRIGHT", -24, 16)
     Tracker.content = content
     Tracker.rows = {}
 
@@ -78,6 +83,7 @@ local function GetRow(i)
 
     row = CreateFrame("Frame", nil, Tracker.content)
     row:SetSize(WIDTH - 34, ITEM_H)
+    row:EnableMouse(true)
 
     row.check = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
     row.check:SetSize(16, 16)
@@ -110,6 +116,15 @@ function Tracker.Refresh()
         head.text:SetPoint("LEFT", 2, 0)
         head.text:SetText(string.format("|cffffffff%s|r  %s",
             o.player, STATUS_SHORT[o.status] or o.status))
+        head:SetScript("OnMouseUp", function(_, button)
+            if button ~= "RightButton" then return end
+            ns.Orders.SetStatus(o, "cancelled",
+                GetServerTime and GetServerTime() or time())
+            ns.Print(string.format(
+                "order #%d for %s cancelled. |cff888888/cm order reopen %d to undo|r",
+                o.id, o.player, o.id))
+            Tracker.Refresh()
+        end)
         head:SetHeight(HEADER_H)
         head:SetPoint("TOPLEFT", 0, -y)
         head:Show()
@@ -126,9 +141,28 @@ function Tracker.Refresh()
             row.check:SetChecked(it.cut and true or false)
             row.check:SetScript("OnClick", function(self)
                 it.cut = self:GetChecked() and true or false
+
+                -- Ticking the last gem finishes the order. Leaving it open
+                -- with everything ticked means the tracker never empties,
+                -- which defeats the point of a to-do list.
+                if it.cut then
+                    local allCut = true
+                    for _, other in ipairs(o.items) do
+                        if not other.cut then allCut = false break end
+                    end
+                    if allCut then
+                        ns.Orders.SetStatus(o, "done",
+                            GetServerTime and GetServerTime() or time())
+                        ns.Print(string.format(
+                            "|cff44ff44order #%d for %s complete.|r "
+                            .. "|cff888888/cm order reopen %d to undo|r",
+                            o.id, o.player, o.id))
+                    end
+                end
                 Tracker.Refresh()
             end)
 
+            row:SetScript("OnMouseUp", nil)
             row.text:SetPoint("LEFT", 20, 0)
             local qty = string.format("x%d%s", it.qty or 1,
                 it.qtySource == "mats" and "" or "?")
@@ -151,17 +185,22 @@ function Tracker.Refresh()
         local row = GetRow(used)
         row.check:Hide()
         row.text:SetPoint("LEFT", 2, 0)
-        row.text:SetText("|cff888888no open orders|r")
+        row:SetScript("OnMouseUp", nil)
+        row.text:SetText(ns.Orders.PendingCount() > 0
+            and "|cff888888waiting for them to join|r"
+            or "|cff888888no open orders|r")
         row:SetHeight(ITEM_H)
         row:SetPoint("TOPLEFT", 0, -y)
         row:Show()
         y = y + ITEM_H
     end
 
-    Tracker.title:SetText(string.format("Orders  |cff888888%d open, %d to cut|r",
-        #orders, remaining))
+    local pending = ns.Orders.PendingCount()
+    Tracker.title:SetText(string.format(
+        "Orders  |cff888888%d open, %d to cut%s|r", #orders, remaining,
+        pending > 0 and (", " .. pending .. " not joined") or ""))
     Tracker.content:SetSize(WIDTH - 34, math.max(1, y))
-    f:SetHeight(math.min(400, math.max(80, y + 36)))
+    f:SetHeight(math.min(400, math.max(90, y + 46)))
 end
 
 function Tracker.Show()

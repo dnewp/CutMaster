@@ -18,7 +18,7 @@ function Orders.Open(player)
     return nil
 end
 
-function Orders.Create(player, source, requestText, matched, now)
+function Orders.Create(player, source, requestText, matched, now, status)
     local o = {
         id = ns.db.nextOrderID,
         player = player,
@@ -26,7 +26,7 @@ function Orders.Create(player, source, requestText, matched, now)
         requestText = ns.Util.StripEscapes(requestText or ""),
         createdAt = now,
         updatedAt = now,
-        status = "pending",
+        status = status or "pending",
         items = {},
         matsReceived = {},
         needsSplit = false,
@@ -56,7 +56,9 @@ function Orders.Record(player, source, text, matched, now)
         o = Orders.Create(player, source, text, matched, now)
         ns.Print(string.format("|cff44ff44order #%d opened|r for %s: %s",
             o.id, player, Orders.Summarise(o)))
-        if ns.Tracker then ns.Tracker.Notify() end
+        -- Refresh, do not auto-show: a pending order is somebody who has not
+        -- turned up yet, so popping the tracker for it is premature.
+        if ns.Tracker then ns.Tracker.Refresh() end
         return o, true
     end
 
@@ -183,10 +185,53 @@ function Orders.Prune(now, keepDays)
     ns.db.orders = kept
 end
 
+-- "Open" means they actually turned up. A pending order is somebody who asked
+-- for a cut and may never join, so counting it as work in progress inflates
+-- the queue with people who wandered off.
 function Orders.OpenList()
+    local out = {}
+    for _, o in ipairs(ns.db.orders) do
+        if o.status == "grouped" or o.status == "mats" then out[#out + 1] = o end
+    end
+    return out
+end
+
+-- Everything not finished, including pending. For the Orders tab, which is
+-- the full picture rather than the working queue.
+function Orders.ActiveList()
     local out = {}
     for _, o in ipairs(ns.db.orders) do
         if o.status ~= "done" and o.status ~= "cancelled" then out[#out + 1] = o end
     end
     return out
+end
+
+function Orders.PendingCount()
+    local n = 0
+    for _, o in ipairs(ns.db.orders) do
+        if o.status == "pending" then n = n + 1 end
+    end
+    return n
+end
+
+function Orders.ByID(id)
+    for _, o in ipairs(ns.db.orders) do
+        if o.id == id then return o end
+    end
+    return nil
+end
+
+-- Promote anyone who has now actually joined the group.
+function Orders.PromoteGrouped(now)
+    local promoted = 0
+    for _, o in ipairs(ns.db.orders) do
+        if o.status == "pending" and (UnitInParty(o.player) or UnitInRaid(o.player)) then
+            Orders.SetStatus(o, "grouped", now)
+            promoted = promoted + 1
+            ns.Print(string.format("|cff44ff44%s joined.|r Order #%d is now open: %s",
+                o.player, o.id, Orders.Summarise(o)))
+        end
+    end
+    if promoted > 0 and ns.Tracker then ns.Tracker.Notify() end
+    return promoted
 end

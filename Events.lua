@@ -3,6 +3,12 @@ local addonName, ns = ...
 ns.Events = ns.Events or {}
 local Events = ns.Events
 
+-- How far back to look when stitching together a fragmented request.
+local CONTEXT_WINDOW = 90
+
+-- A message this short naming a gem family is a fragment, not conversation.
+local FRAGMENT_WORDS = 5
+
 -- Only the recipe ITEM ("Design: Bold Living Ruby") is a seller tell. Craft
 -- spell links are not: real trade chat shows buyers using them too, e.g.
 -- "LF enchanter for [Enchanting: Enchant Boots - Boar's Speed]".
@@ -52,6 +58,29 @@ function Events.Process(text, author, source, opts)
     if #matched > 0 and not isDirect then
         _, isRepeat = ns.Players.Observe(
             state, norm, now, ns.db.settings.filter.repeatWindowSec)
+    end
+
+    -- Fragmented requests. Someone typing "Shifting Shadowsong?" then
+    -- "Amethyst" names one gem across two messages, and matching each line on
+    -- its own finds nothing. Retry against the last minute of what they said.
+    -- Only for whispers and party chat, where the messages are a conversation
+    -- with us rather than unrelated lines in a busy channel.
+    local usedContext = false
+    if isDirect and #matched == 0 then
+        local combined = ns.Players.RecentText(state, now, CONTEXT_WINDOW)
+        if combined ~= "" then
+            combined = combined .. " " .. text
+            local cnorm = ns.Util.Normalize(combined)
+            local cm = ns.Matcher.Match(combined, cnorm, Events.index)
+            if #cm > 0 then
+                matched = cm
+                norm = cnorm
+                usedContext = true
+            end
+        end
+    end
+    if isDirect and not opts.dryRun then
+        ns.Players.PushRecent(state, text, now)
     end
 
     local filter = ns.db.settings.filter
@@ -169,28 +198,61 @@ function Events.Process(text, author, source, opts)
             -- The order itself is booked by the shared path below.
 
         else
-            local family, ids = ns.Matcher.NearMiss(norm, Events.index)
-            if family and ids then
-                local links = {}
-                for _, id in ipairs(ids) do
-                    local b = ns.db.book[id]
-                    if b and (b.link or b.name) then links[#links + 1] = b.link or b.name end
-                end
+            local asked = ns.Util.IsAvailabilityQuestion(
+                text, norm, ns.db.settings.filter.askPhrases)
+            local mayReply = w.enabled and w.autoReply
+                and (w.autoSuggest or (asked and w.answerQuestions))
+
+            local family, ids, exactFamily = ns.Matcher.NearMiss(norm, Events.index)
+            local links = {}
+            for _, id in ipairs(ids or {}) do
+                local b = ns.db.book[id]
+                if b and (b.link or b.name) then links[#links + 1] = b.link or b.name end
+            end
+
+            -- Half a gem name is a question we can answer usefully: link our
+            -- cuts of that family and ask which one. That is clarification,
+            -- not a pitch, so it does not need an explicit question phrase.
+            -- Kept to short messages so it cannot fire on someone chatting.
+            local fragment = family and not exactFamily and #links > 0
+                and (asked or #ns.Util.Tokenize(norm) <= FRAGMENT_WORDS)
+
+            if fragment and w.enabled and w.autoReply then
+                local show = {}
+                for i = 1, math.min(3, #links) do show[i] = links[i] end
+                ns.Inviter.Say(short, w.askWhichTemplate,
+                    { gems = table.concat(show, " ") })
+                ns.Print(string.format(
+                    "|cffffcc00%s typed a partial gem name.|r Asked which of: %s",
+                    short, table.concat(show, " ")))
+                result.reason = "asked which cut"
+                ns.Log.Add(short, text, matched, result, now)
+                return result
+            end
+
+            if #links > 0 or (asked and namedUnknownGem) then
                 if #links > 0 then
+                    -- Printed for the user only. What we CAN cut is useful for
+                    -- them to see; pushing it at the customer is not.
                     ns.Print(string.format(
                         "|cffffcc00%s asked about a cut you do not know.|r You can cut: %s",
                         short, table.concat(links, " ")))
-                    result.reason = "unknown cut"
-                    ns.Log.Add(short, text, matched, result, now)
-                    -- Off by default. Someone mentioning a gem is not
-                    -- necessarily ordering one: a whispered question about
-                    -- pricing got auto-answered with a sales pitch. Telling
-                    -- the user is useful; talking over them is not.
-                    if w.enabled and w.autoReply and w.autoSuggest then
-                        -- Keep it inside the 255 cap; three links is plenty.
+                else
+                    ns.Print(string.format(
+                        "|cffffcc00%s asked for a cut you do not have.|r", short))
+                end
+                result.reason = "unknown cut"
+                ns.Log.Add(short, text, matched, result, now)
+
+                if mayReply then
+                    if w.autoSuggest and #links > 0 then
+                        -- Opt in only. Answering with a list of things they did
+                        -- not ask about is a sales pitch, not an answer.
                         while #links > 3 do table.remove(links) end
                         ns.Inviter.Say(short, w.suggestTemplate,
                             { gems = table.concat(links, " ") })
+                    else
+                        ns.Inviter.Say(short, w.noneTemplate, {})
                     end
                 end
             end
@@ -203,6 +265,10 @@ function Events.Process(text, author, source, opts)
             or (isParty and o.autoFromParty)
             or (not isDirect and o.autoFromInvite)
         if wanted and result.verdict == "invite" and #matched > 0 then
+            if usedContext then
+                ns.Print(string.format(
+                    "|cff888888(matched %s using their previous message)|r", short))
+            end
             ns.Orders.Record(short, source, text, matched, now)
         end
         if isDirect and o.captureTranscript then

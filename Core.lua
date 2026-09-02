@@ -68,6 +68,9 @@ ns.Defaults = {
                 enabled = true,
                 autoReply = true,
                 autoSuggest = false,
+                -- Answer direct availability questions even when
+                -- unsolicited suggestions are switched off.
+                answerQuestions = true,
                 -- They named a gem we can cut.
                 template = "Invited you for {gem}! Accept and trade me the mats.",
                 -- They asked for a jeweller without naming anything.
@@ -80,6 +83,10 @@ ns.Defaults = {
                 suggestTemplate = "I don't have that exact cut, but I can do: {gems}",
                 -- They linked several and we only know some of them.
                 partialTemplate = "I can do {have}, but I don't have {lack}.",
+                -- They asked outright and we have nothing close.
+                noneTemplate = "Sorry, I don't have that cut.",
+                -- Half a gem name. We do not know which cut they mean.
+                askWhichTemplate = "Did you mean one of these? {gems}",
                 cooldownSec = 600,
                 replyCooldownSec = 10,
             },
@@ -113,6 +120,13 @@ ns.Defaults = {
                 "looking for a jewelcrafter", "jc online", "jc around",
             },
             canCutGuards = { "who", "anyone", "any1", "anybody", "someone", "jc" },
+            -- Paired with a question mark, these mean "are you able to supply
+            -- this", which is owed a direct answer.
+            askPhrases = {
+                "do you have", "do u have", "you have", "do you got", "got",
+                "have you got", "can you cut", "can u cut", "able to cut",
+                "can you do", "do you do", "any chance", "you got",
+            },
             weights = {
                 manyLinks = 3, designLink = 4, repeatBark = 5, shapeMatch = 2, canCut = 4,
             },
@@ -130,6 +144,7 @@ ns.Defaults = {
             promptOnDone = true,
             keepDoneDays = 30,
         },
+        gemStats = true,
         captureAll = false,
         outputFrame = 1,
         minimap = { hide = false },
@@ -145,6 +160,7 @@ frame:RegisterEvent("TRADE_SKILL_SHOW")
 frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:RegisterEvent("CHAT_MSG_CHANNEL")
 frame:RegisterEvent("CHAT_MSG_WHISPER")
+frame:RegisterEvent("GROUP_ROSTER_UPDATE")
 frame:RegisterEvent("CHAT_MSG_RAID_LEADER")
 frame:RegisterEvent("CHAT_MSG_RAID")
 frame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
@@ -168,6 +184,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "SKILL_LINES_CHANGED" then
         if ns.db then ns.db.bookDirty = true end
     elseif event == "TRADE_SKILL_SHOW" then
+        C_Timer.After(0.1, function() ns.Stats.OnTradeSkillShow() end)
         -- GetNumTradeSkills reads 0 for a frame or two after the event fires.
         C_Timer.After(0.2, function()
             if not ns.Scanner.IsJewelcrafting() then return end
@@ -195,6 +212,10 @@ frame:SetScript("OnEvent", function(self, event, ...)
         or event == "CHAT_MSG_RAID" or event == "CHAT_MSG_RAID_LEADER" then
         local text, author = ...
         ns.Events.OnParty(text, author)
+    elseif event == "GROUP_ROSTER_UPDATE" then
+        if ns.db then
+            ns.Orders.PromoteGrouped(GetServerTime and GetServerTime() or time())
+        end
     elseif event == "CHAT_MSG_WHISPER_INFORM" then
         local text, target = ...
         if ns.db.settings.orders.captureTranscript then
@@ -271,10 +292,12 @@ local function HandleSlash(input)
             ns.Print("barking " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
             if s.enabled then ns.Barker.Start(true) else ns.Barker.Stop() end
         end
+    elseif cmd == "stats" then
+        ns.Stats.Toggle()
     elseif cmd == "tracker" then
         ns.Tracker.Toggle()
     elseif cmd == "orders" then
-        local open = ns.Orders.OpenList()
+        local open = ns.Orders.ActiveList()
         if #open == 0 then
             ns.Print("no open orders.")
         end
@@ -292,7 +315,7 @@ local function HandleSlash(input)
         sub = (sub or ""):lower()
         local now = GetServerTime and GetServerTime() or time()
         if sub == "add" and arg ~= "" then
-            local o = ns.Orders.Create(arg, "manual", "", {}, now)
+            local o = ns.Orders.Create(arg, "manual", "", {}, now, "grouped")
             ns.Print(string.format("order #%d opened for %s. "
                 .. "Trade them the mats and it will fill itself in.", o.id, arg))
         elseif sub == "done" then
@@ -305,6 +328,14 @@ local function HandleSlash(input)
                 end
             end
             ns.Print("no order with that id.")
+        elseif sub == "reopen" then
+            local o = ns.Orders.ByID(tonumber(arg))
+            if o then
+                ns.Orders.SetStatus(o, "grouped", now)
+                ns.Print(string.format("order #%d reopened.", o.id))
+            else
+                ns.Print("no order with that id.")
+            end
         elseif sub == "cancel" then
             local id = tonumber(arg)
             for _, o in ipairs(ns.db.orders) do
@@ -316,7 +347,7 @@ local function HandleSlash(input)
             end
             ns.Print("no order with that id.")
         else
-            ns.Print("usage: /cm order add <player> | done <id> | cancel <id>")
+            ns.Print("usage: /cm order add <player> | done <id> | cancel <id> | reopen <id>")
         end
     elseif cmd == "income" then
         ns.Ledger.Report()
@@ -460,6 +491,7 @@ local function HandleSlash(input)
         ns.Print("  /cm adv rare|all|none|+text|-text,")
         ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
         ns.Print("  /cm orders, /cm order add|done|cancel, /cm tracker, /cm income,")
+        ns.Print("  /cm stats,")
         ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test")
     end
 end

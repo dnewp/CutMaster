@@ -41,7 +41,7 @@ function UI.BuildOrders(page)
         if ns.Orders.Open(who) then
             ns.Print(who .. " already has an open order.")
         else
-            local o = ns.Orders.Create(who, "manual", "", {}, now)
+            local o = ns.Orders.Create(who, "manual", "", {}, now, "grouped")
             ns.Print(string.format("order #%d opened for %s. "
                 .. "Trade them the mats and it fills itself in.", o.id, who))
         end
