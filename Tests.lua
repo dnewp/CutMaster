@@ -970,3 +970,26 @@ T.Case("A bark is due measured from the last one actually sent", function()
     T.Eq(ns.Barker.IsDue(nil, 1788441671, 180), true, "never sent, due immediately")
     T.Eq(ns.Barker.IsDue(0, 1788441671, 600), true, "a zeroed timestamp is also due")
 end)
+
+T.Case("IsAvailabilityQuestion recognises a bare linked gem plus a trailing ?", function()
+    -- The exact Sheraton case: a shift-clicked link with no typed words at
+    -- all. The link followed by "?" IS the question; requiring a phrase from
+    -- the list would miss every customer who just links and asks.
+    local msg = RUBY_LINK .. "?"
+    T.Eq(ns.Util.IsAvailabilityQuestion(msg, ns.Util.Normalize(msg), ASK), true,
+        "bare link plus trailing ?")
+end)
+
+T.Case("IsAvailabilityQuestion does not fire on a link with no question mark", function()
+    T.Eq(ns.Util.IsAvailabilityQuestion(RUBY_LINK, ns.Util.Normalize(RUBY_LINK), ASK),
+        false, "link alone, mentioned in passing")
+end)
+
+T.Case("IsAvailabilityQuestion requires the ? to be at the end for a bare link", function()
+    -- A link with a question elsewhere in the sentence is a different kind of
+    -- question ("why is [X] so expensive? because...") not an availability ask.
+    local msg = RUBY_LINK .. " is this a good deal? not sure"
+    T.Eq(ns.Util.IsAvailabilityQuestion(msg, ns.Util.Normalize(msg), ASK), false,
+        "question mark not trailing the message")
+end)
+

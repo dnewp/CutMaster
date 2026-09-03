@@ -54,6 +54,15 @@ end
 -- availability phrase separates the two.
 function Util.IsAvailabilityQuestion(raw, norm, phrases)
     if not raw or not raw:find("?", 1, true) then return false end
+
+    -- A shift-clicked gem link with a trailing "?" and no typed words at all
+    -- ("[Shifting Shadowsong Amethyst]?") is as direct a question as it gets.
+    -- Requiring a phrase from the list would miss it entirely, which is
+    -- exactly what happened: the link itself IS the question.
+    if raw:find("|Hitem:", 1, true) and raw:match("%?%s*$") then
+        return true
+    end
+
     for _, p in ipairs(phrases or {}) do
         if Util.HasPhrase(norm, p) then return true end
     end
