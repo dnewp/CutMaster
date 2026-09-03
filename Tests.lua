@@ -1116,3 +1116,75 @@ T.Case("Classifier scores LF gem crafter as a buyer signal", function()
     T.Eq(r.verdict, "invite", "verdict")
     T.Eq(r.buyerHits.crafter, 2, "crafter scored as a buyer signal")
 end)
+
+T.Case("StripLinkText removes a link's display text entirely", function()
+    local msg = "LF JC " .. RUBY_LINK
+    T.Eq(ns.Util.StripLinkText(msg), "LF JC  ", "link and its name both gone")
+end)
+
+T.Case("A linked gem's own name does not loose-match an unrelated gem", function()
+    -- The exact Ruylopez bug: linking Purified Shadow Pearl normalizes to
+    -- "...purified shadow pearl", and "purified"+"pearl" alone used to loose
+    -- match the completely unrelated Purified Jaggal Pearl, silently
+    -- attaching a gem nobody asked for to the order.
+    local shadowPearlLink =
+        "|cff0070dd|Hitem:32836::::::::70:::::1:3524:::::|h[Purified Shadow Pearl]|h|r"
+    local book = {
+        [32836] = { itemID = 32836, name = "Purified Shadow Pearl",
+                    classID = 3, bindType = 0, match = true, aliases = {} },
+        [32833] = { itemID = 32833, name = "Purified Jaggal Pearl",
+                    classID = 3, bindType = 0, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    local text = "LF JC " .. shadowPearlLink
+    local hits = ns.Matcher.Match(text, ns.Util.Normalize(text), index)
+    T.Eq(#hits, 1, "only the linked gem matches")
+    T.Eq(hits[1].itemID, 32836, "Purified Shadow Pearl, not the unrelated Jaggal Pearl")
+end)
+
+T.Case("Loose matching still works for the customer's own typed words", function()
+    -- The fix must not break ordinary shorthand outside of link text.
+    T.Eq(matchIDs("wtb bold ruby")[24033], "loose", "still matches")
+end)
+
+T.Case("Orders.RemoveItem discards one line without touching the rest", function()
+    local o = { items = {
+        { itemID = 1, qty = 2, cut = true },
+        { itemID = 2, qty = 1 },
+        { itemID = 3, qty = 4, cut = true },
+    }, needsSplit = false }
+    T.Eq(ns.Orders.RemoveItem(o, 2), true, "removed")
+    T.Eq(#o.items, 2, "one line gone")
+    T.Eq(o.items[1].itemID, 1, "first item untouched")
+    T.Eq(o.items[2].itemID, 3, "third item untouched")
+end)
+
+T.Case("Orders.RemoveItem returns false for an item not on the order", function()
+    local o = { items = { { itemID = 1, qty = 1 } }, needsSplit = false }
+    T.Eq(ns.Orders.RemoveItem(o, 99), false, "nothing to remove")
+    T.Eq(#o.items, 1, "unchanged")
+end)
+
+T.Case("Orders.RemoveItem clears needsSplit once no ambiguous line remains", function()
+    local o = { items = {
+        { itemID = 1, qty = 1, qtySource = "ambiguous" },
+        { itemID = 2, qty = 1, qtySource = "ambiguous" },
+    }, needsSplit = true }
+    ns.Orders.RemoveItem(o, 1)
+    T.Eq(o.needsSplit, true, "the other ambiguous line still needs resolving")
+    ns.Orders.RemoveItem(o, 2)
+    T.Eq(o.needsSplit, false, "cleared once nothing ambiguous is left")
+end)
+
+T.Case("Orders.FindItemByName matches case-insensitively by substring", function()
+    local savedBook = ns.db.book
+    ns.db.book = {
+        [32833] = { itemID = 32833, name = "Purified Jaggal Pearl" },
+        [32836] = { itemID = 32836, name = "Purified Shadow Pearl" },
+    }
+    local o = { items = { { itemID = 32833 }, { itemID = 32836 } } }
+    T.Eq(ns.Orders.FindItemByName(o, "jaggal"), 32833, "matches by substring")
+    T.Eq(ns.Orders.FindItemByName(o, "SHADOW"), 32836, "case insensitive")
+    T.Eq(ns.Orders.FindItemByName(o, "topaz"), nil, "no match returns nil")
+    ns.db.book = savedBook
+end)

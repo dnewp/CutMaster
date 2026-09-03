@@ -55,9 +55,13 @@ function Tracker.Create()
     Tracker.title = title
 
     local hint = ns.UI.Label(f,
-        "|cff666666tick as you cut, right click a name to cancel|r",
+        "|cff666666tick to cut. Right click: name = cancel order, "
+            .. "gem = remove that gem|r",
         "GameFontDisableSmall")
     hint:SetPoint("BOTTOMLEFT", 6, 2)
+    hint:SetWidth(WIDTH - 12)
+    hint:SetJustifyH("LEFT")
+    hint:SetWordWrap(true)
 
     local close = ns.UI.Button(f, "X", 18, 16)
     close:SetPoint("TOPRIGHT", -6, -5)
@@ -195,7 +199,16 @@ function Tracker.Refresh()
                 Tracker.Refresh()
             end)
 
-            row:SetScript("OnMouseUp", nil)
+            -- Right-click a single item to discard just that line, e.g. a
+            -- stale or wrongly matched gem nobody actually asked for. There
+            -- was previously no way to clear one without cancelling the
+            -- whole order (right-click on the name above does that instead).
+            row:SetScript("OnMouseUp", function(_, button)
+                if button ~= "RightButton" then return end
+                ns.Orders.RemoveItem(o, it.itemID)
+                ns.Print(string.format("removed %s from order #%d.", name, o.id))
+                Tracker.Refresh()
+            end)
             row.text:SetPoint("LEFT", 20, 0)
             local qty = string.format("x%d%s", it.qty or 1,
                 it.qtySource == "mats" and "" or "?")

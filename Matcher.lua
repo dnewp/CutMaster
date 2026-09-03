@@ -199,7 +199,15 @@ function Matcher.Match(raw, norm, index)
         end
     end
 
-    local toks = Util.Tokenize(norm)
+    -- Loose matching scans the customer's own typed words only. A linked
+    -- gem's bracketed display name normalizes into plain words too, and
+    -- those can accidentally share a prefix/base with a completely
+    -- different, unrelated known gem ("Purified Shadow Pearl" linked ->
+    -- "purified ... pearl" -> falsely matched "Purified Jaggal Pearl",
+    -- which nobody asked for). Stripping link text before this scan is what
+    -- keeps loose matching scoped to what the person actually wrote.
+    local looseNorm = Util.Normalize(Util.StripLinkText(raw))
+    local toks = Util.Tokenize(looseNorm)
     local pos = {}
     for i, w in ipairs(toks) do
         pos[w] = pos[w] or {}

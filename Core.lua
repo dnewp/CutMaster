@@ -365,6 +365,24 @@ local function HandleSlash(input)
                 end
             end
             ns.Print("no order with that id.")
+        elseif sub == "removeitem" then
+            local id, name = arg:match("^(%S+)%s+(.+)$")
+            local o = id and ns.Orders.ByID(tonumber(id))
+            if not o then
+                ns.Print("usage: /cm order removeitem <id> <gem name>")
+            else
+                local itemID = ns.Orders.FindItemByName(o, name)
+                if not itemID then
+                    ns.Print(string.format(
+                        "no item matching '%s' on order #%d. It has: %s",
+                        name, o.id, ns.Orders.Summarise(o)))
+                else
+                    local e = ns.db.book[itemID]
+                    ns.Orders.RemoveItem(o, itemID)
+                    ns.Print(string.format("removed %s from order #%d.",
+                        e and (e.link or e.name) or tostring(itemID), o.id))
+                end
+            end
         elseif sub == "reopen" then
             local o = ns.Orders.ByID(tonumber(arg))
             if o then
@@ -384,7 +402,8 @@ local function HandleSlash(input)
             end
             ns.Print("no order with that id.")
         else
-            ns.Print("usage: /cm order add <player> | done <id> | cancel <id> | reopen <id>")
+            ns.Print("usage: /cm order add <player> | done <id> | cancel <id> "
+                .. "| reopen <id> | removeitem <id> <gem name>")
         end
     elseif cmd == "income" then
         ns.Ledger.Report()

@@ -69,6 +69,17 @@ function Util.IsAvailabilityQuestion(raw, norm, phrases)
     return false
 end
 
+-- Unlike StripEscapes, this removes the LINK'S DISPLAY TEXT too, not just the
+-- colour codes around it. "LF JC [Purified Shadow Pearl]" normalizes to
+-- "lf jc purified shadow pearl" for loose matching, and "purified"+"pearl"
+-- from that link's own name then falsely matched an unrelated known gem,
+-- Purified Jaggal Pearl, that the customer never mentioned. Loose matching
+-- must only ever see the customer's own typed words.
+function Util.StripLinkText(raw)
+    if not raw then return "" end
+    return (raw:gsub("|c%x%x%x%x%x%x%x%x|H.-|h%[.-%]|h|r", " "))
+end
+
 function Util.HasPhrase(norm, phrase)
     if not norm or not phrase or phrase == "" then return false end
     return (" " .. norm .. " "):find(" " .. phrase .. " ", 1, true) ~= nil

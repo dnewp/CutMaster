@@ -106,6 +106,43 @@ function Orders.SetStatus(o, status, now)
     if status == "done" then o.completedAt = now end
 end
 
+-- There was previously no way to discard one wrong or stale line item
+-- without cancelling the whole order, right-clicking the header ("removes
+-- the order") or leaving the tracker permanently stuck on an item nobody
+-- ever intends to fulfil (nothing to tick, order can never auto-complete).
+-- Returns true if something was removed.
+function Orders.RemoveItem(o, itemID)
+    local removed = false
+    for i = #o.items, 1, -1 do
+        if o.items[i].itemID == itemID then
+            table.remove(o.items, i)
+            removed = true
+        end
+    end
+    if removed then
+        local stillAmbiguous = false
+        for _, it in ipairs(o.items) do
+            if it.qtySource == "ambiguous" then stillAmbiguous = true break end
+        end
+        o.needsSplit = stillAmbiguous
+    end
+    return removed
+end
+
+-- Case-insensitive substring match on the item's name, since a slash command
+-- user has the gem's name in front of them, not its itemID.
+function Orders.FindItemByName(o, text)
+    text = ns.Util.Normalize(text)
+    if text == "" then return nil end
+    for _, it in ipairs(o.items) do
+        local e = ns.db.book[it.itemID]
+        if e and e.name and ns.Util.Normalize(e.name):find(text, 1, true) then
+            return it.itemID
+        end
+    end
+    return nil
+end
+
 function Orders.Summarise(o)
     local parts = {}
     for _, it in ipairs(o.items) do
