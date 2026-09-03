@@ -83,7 +83,14 @@ function Events.Process(text, author, source, opts)
             end
         end
     end
-    if isDirect and not opts.dryRun then
+    -- A trade chat post that named a real gem is remembered too, not just
+    -- whispers. Wokenough posted "LF [Delicate Living Ruby] crafter" in
+    -- Trade, then whispered nothing but "delicate" and "all 9" -- never the
+    -- base word "living"/"ruby" needed to resolve the fragment. The gem name
+    -- was said in public and then thrown away the moment the conversation
+    -- moved to whisper. Gated on an actual match so raid ads and unrelated
+    -- chat do not fill the buffer.
+    if not opts.dryRun and (isDirect or #matched > 0) then
         ns.Players.PushRecent(state, text, now)
     end
 
@@ -261,6 +268,29 @@ function Events.Process(text, author, source, opts)
                             { gems = table.concat(links, " ") })
                     else
                         ns.Inviter.Say(short, w.noneTemplate, {})
+                    end
+                end
+            else
+                -- Last resort: a bare cut prefix with none of its base words
+                -- present ("looking for jagged..."). Genuinely ambiguous, e.g.
+                -- Jagged Seaspray Emerald and Jagged Deep Peridot are unrelated
+                -- gems that only share a tier adjective, so this is local only.
+                -- Guessing which one to whisper about, in a message that is
+                -- often asking about other things too, would be worse than
+                -- staying quiet; the user can reply themselves once they see it.
+                local prefixWord, prefixIDs = ns.Matcher.PrefixNearMiss(norm, Events.index)
+                if prefixWord then
+                    local pl = {}
+                    for _, id in ipairs(prefixIDs) do
+                        local b = ns.db.book[id]
+                        if b and (b.link or b.name) then pl[#pl + 1] = b.link or b.name end
+                    end
+                    if #pl > 0 then
+                        ns.Print(string.format(
+                            "|cffffcc00%s mentioned \"%s\", could be:|r %s",
+                            short, prefixWord, table.concat(pl, " ")))
+                        result.reason = "ambiguous prefix"
+                        ns.Log.Add(short, text, matched, result, now)
                     end
                 end
             end

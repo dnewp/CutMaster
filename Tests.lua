@@ -993,3 +993,79 @@ T.Case("IsAvailabilityQuestion requires the ? to be at the end for a bare link",
         "question mark not trailing the message")
 end)
 
+
+T.Case("PrefixNearMiss finds ambiguous unrelated gems sharing a prefix", function()
+    -- The Gingersfury case: "jagged" alone matches two UNRELATED gems, not
+    -- tiers of one family, so this must stay distinct from NearMiss.
+    local book = {
+        [1] = { itemID = 1, name = "Jagged Seaspray Emerald",
+                classID = 3, bindType = 0, match = true, aliases = {} },
+        [2] = { itemID = 2, name = "Jagged Deep Peridot",
+                classID = 3, bindType = 0, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    local text = "looking for jagged and do you happen to be an enchanter as well?"
+    local word, ids = ns.Matcher.PrefixNearMiss(ns.Util.Normalize(text), index)
+    T.Eq(word, "jagged", "prefix found")
+    T.Eq(#ids, 2, "both unrelated gems returned, not merged as one family")
+end)
+
+T.Case("PrefixNearMiss requires the exact token, not a substring", function()
+    local book = {
+        [1] = { itemID = 1, name = "Jagged Seaspray Emerald",
+                classID = 3, bindType = 0, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    T.Eq(ns.Matcher.PrefixNearMiss(ns.Util.Normalize("ragged old boots"), index),
+        nil, "does not fire on an unrelated word containing similar letters")
+end)
+
+T.Case("PrefixNearMiss stays silent below the length gate", function()
+    -- "bold" is 4 letters and appears constantly in unrelated chat
+    -- ("bold move", "boldly"). Must not surface even as a local-only note.
+    local book = {
+        [1] = { itemID = 1, name = "Bold Living Ruby",
+                classID = 3, bindType = 0, match = true, aliases = {} },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    T.Eq(ns.Matcher.PrefixNearMiss(ns.Util.Normalize("that was a bold move"), index),
+        nil, "short common prefix excluded")
+end)
+
+T.Case("PrefixNearMiss returns nil when nothing shares that prefix", function()
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    T.Eq(ns.Matcher.PrefixNearMiss(ns.Util.Normalize("lfg deadmines"), index),
+        nil, "no match")
+end)
+
+T.Case("Orders.Open matches regardless of case", function()
+    local saved = ns.db.orders
+    ns.db.orders = { { id = 1, player = "wokenough", status = "grouped", items = {} } }
+    T.Eq(ns.Orders.Open("Wokenough") ~= nil, true,
+        "manually typed lowercase name still found via live proper-case lookup")
+    T.Eq(ns.Orders.Open("WOKENOUGH") ~= nil, true, "all caps also matches")
+    ns.db.orders = saved
+end)
+
+T.Case("Orders.Open still respects done and cancelled regardless of case", function()
+    local saved = ns.db.orders
+    ns.db.orders = { { id = 1, player = "Wokenough", status = "done", items = {} } }
+    T.Eq(ns.Orders.Open("wokenough"), nil, "closed order not returned")
+    ns.db.orders = saved
+end)
+
+T.Case("Classifier scores LF gem crafter as a buyer signal", function()
+    -- The exact Wokenough message: matched the gem, but scored zero buyer
+    -- signal and got blocked by requireBuyerSignal purely on wording.
+    local text = "LF " .. RUBY_LINK .. " crafter"
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    local norm = ns.Util.Normalize(text)
+    local r = ns.Classifier.Evaluate({
+        norm = norm, raw = text,
+        matched = ns.Matcher.Match(text, norm, index),
+        linkCount = 1,
+        filter = ns.DeepCopy(ns.Defaults.settings.filter),
+    })
+    T.Eq(r.verdict, "invite", "verdict")
+    T.Eq(r.buyerHits.crafter, 2, "crafter scored as a buyer signal")
+end)

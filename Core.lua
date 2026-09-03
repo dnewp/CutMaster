@@ -117,6 +117,11 @@ ns.Defaults = {
                 ["anyone cut"] = 3, ["who can cut"] = 3, ["any jc"] = 2,
                 ["lfjc"] = 3, ["lf jc"] = 3, ["have mats"] = 2, ["got mats"] = 2,
                 ["have the mats"] = 2, ["will tip"] = 2, ["paying"] = 2, ["pay for"] = 2,
+                -- "LF [Delicate Living Ruby] crafter" matched the gem but
+                -- scored zero buyer signal and got blocked by
+                -- requireBuyerSignal, since none of the phrases above cover
+                -- this very ordinary "LF <gem> crafter/cutter" phrasing.
+                ["crafter"] = 2, ["cutter"] = 2,
             },
             -- Asking for the profession itself, with no gem named. Word order
             -- separates these from a competitor's "JC LFW".

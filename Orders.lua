@@ -9,9 +9,17 @@ Orders.STATUS = { "pending", "grouped", "mats", "done", "cancelled" }
 -- Creation and lookup
 --------------------------------------------------------------------------------
 
+-- Case-insensitive on purpose. A manually typed name ("wokenough") and the
+-- live trade partner's actual casing ("Wokenough") are the same player, but
+-- an exact match missed that: the order sat un-credited while the payment
+-- landed only in the global ledger, with no orderID and no confirmation
+-- print. The stored casing is left as-is; only the comparison is folded.
 function Orders.Open(player)
+    if not player then return nil end
+    local key = player:lower()
     for _, o in ipairs(ns.db.orders) do
-        if o.player == player and o.status ~= "done" and o.status ~= "cancelled" then
+        if o.player and o.player:lower() == key
+            and o.status ~= "done" and o.status ~= "cancelled" then
             return o
         end
     end
