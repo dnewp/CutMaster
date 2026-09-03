@@ -1,8 +1,8 @@
-## Interface: 20505
+## Interface: 20506
 ## Title: CutMaster
 ## Notes: Jewelcrafting business assistant: book scanning, customer detection, trade chat barking, order tracking and income.
 ## Author: Dezedin
-## Version: 1.0.0
+## Version: 1.1.0
 ## IconTexture: Interface\AddOns\CutMaster\CutMaster.tga
 ## SavedVariablesPerCharacter: CutMasterDB
 
