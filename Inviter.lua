@@ -8,6 +8,9 @@ Inviter.whisperCount = 0
 local WHISPER_WARN_AT = 60
 local WHISPER_DELAY = 1.5
 
+-- Keeps a whisper inside the 255 character cap once links are expanded.
+local MAX_GEMS_PER_WHISPER = 3
+
 -- Pure. Reasons the invite cannot happen regardless of message content.
 function Inviter.BlockReason(playerState, now, groupSize, settings)
     if not settings.enabled then return "invites disabled" end
@@ -29,7 +32,7 @@ local function DoInvite(name)
     end
 end
 
-function Inviter.Invite(name, matched)
+function Inviter.Invite(name, matched, ctx)
     if not ns.Enabled() then return end
     local short = name:gsub("%-.*", "")
     local settings = ns.db.settings.invite
@@ -42,12 +45,22 @@ function Inviter.Invite(name, matched)
 
     if PlaySound and SOUNDKIT then PlaySound(SOUNDKIT.MAP_PING) end
 
-    local gemLink
-    if matched and matched[1] then
-        local entry = ns.db.book[matched[1].itemID]
-        gemLink = entry and (entry.link or entry.name)
+    -- Acknowledge EVERY cut they asked for, not just the first. Someone
+    -- requesting two gems and being told about one reads as half an answer.
+    local have = {}
+    for i = 1, math.min(#(matched or {}), MAX_GEMS_PER_WHISPER) do
+        local entry = ns.db.book[matched[i].itemID]
+        if entry then have[#have + 1] = entry.link or entry.name end
     end
-    ns.Print(string.format("invited %s for %s", short, gemLink or "a cut"))
+    local haveText = #have > 0 and table.concat(have, " ") or nil
+
+    local lack = {}
+    for i = 1, math.min(#((ctx and ctx.cannotDo) or {}), MAX_GEMS_PER_WHISPER) do
+        lack[i] = ctx.cannotDo[i]
+    end
+
+    ns.Print(string.format("invited %s for %s%s", short, haveText or "a cut",
+        #lack > 0 and ("  |cffff9900cannot do: " .. table.concat(lack, " ") .. "|r") or ""))
 
     if not settings.whisper.enabled then return end
 
@@ -55,15 +68,23 @@ function Inviter.Invite(name, matched)
     if (now - last) < settings.whisper.cooldownSec then return end
     state.lastWhisperAt = now
 
-    -- A profession request ("LF JC") names nothing, so asking them what they
-    -- need beats claiming we invited them "for your cut".
-    local gemless = not gemLink
-    local template = gemless and settings.whisper.templateNoGem
-        or settings.whisper.template
-    if gemless then state.awaitingGem = now end
+    local template, vars
+    if not haveText then
+        -- A profession request ("LF JC") names nothing, so asking them what
+        -- they need beats claiming we invited them "for your cut".
+        template, vars = settings.whisper.templateNoGem, {}
+        state.awaitingGem = now
+    elseif #lack > 0 then
+        -- They named some we have and some we do not. Say which is which in
+        -- the same breath rather than letting them find out later.
+        template = settings.whisper.partialTemplate
+        vars = { have = haveText, lack = table.concat(lack, " ") }
+    else
+        template, vars = settings.whisper.template, { gem = haveText }
+    end
 
     C_Timer.After(WHISPER_DELAY, function()
-        Inviter.Say(short, template, { gem = gemLink })
+        Inviter.Say(short, template, vars)
     end)
 end
 

@@ -174,6 +174,10 @@ function Events.Process(text, author, source, opts)
     -- Conversational whisper handling. We ask gemless requesters what they
     -- need, then confirm whatever they answer with, and only book an order
     -- once we know it is a cut we can actually deliver.
+    -- An invite sends its own whisper covering both what we can and cannot
+    -- do, so these replies are only for when no invite is going out.
+    local willInvite = result.verdict == "invite" and not result.blocked
+
     if isWhisper and not opts.dryRun and result.verdict ~= "vetoed" then
         local w = ns.db.settings.invite.whisper
 
@@ -181,7 +185,7 @@ function Events.Process(text, author, source, opts)
             local e = ns.db.book[matched[1].itemID]
             local link = e and (e.link or e.name)
 
-            if #cannotDo > 0 and w.enabled and w.autoReply then
+            if #cannotDo > 0 and not willInvite and w.enabled and w.autoReply then
                 -- They asked about several and we only have some. Answering
                 -- which is directly responsive, not an unsolicited pitch.
                 local have = #canDo > 0 and table.concat(canDo, " ") or (link or "that")
@@ -192,7 +196,7 @@ function Events.Process(text, author, source, opts)
                 ns.Print(string.format(
                     "|cffffcc00%s asked for %d cuts, you have %d.|r Cannot do: %s",
                     short, #canDo + #cannotDo, #canDo, table.concat(cannotDo, " ")))
-            elseif state.awaitingGem and w.enabled and w.autoReply then
+            elseif state.awaitingGem and not willInvite and w.enabled and w.autoReply then
                 -- Only confirm when they are answering our question. A fresh
                 -- request already gets the invite whisper, which says the same
                 -- thing, and two whispers in a row reads like spam.
@@ -280,8 +284,8 @@ function Events.Process(text, author, source, opts)
         end
     end
 
-    if result.verdict == "invite" and not result.blocked and not opts.dryRun then
-        ns.Inviter.Invite(short, matched)
+    if willInvite and not opts.dryRun then
+        ns.Inviter.Invite(short, matched, { cannotDo = cannotDo })
     end
 
     return result

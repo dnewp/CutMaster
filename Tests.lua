@@ -947,3 +947,13 @@ T.Case("Barking refuses while the addon is disabled", function()
     T.Eq(reason, "CutMaster is disabled", "reason")
     ns.db.settings.enabled = saved
 end)
+
+T.Case("An invite acknowledges every cut requested, not just the first", function()
+    -- Regression: Inviter.Invite only ever read matched[1], so a request for
+    -- two gems came back acknowledging one.
+    local text = "WTB " .. RUBY_LINK .. " " .. RUBY_LINK:gsub("24033", "24048")
+    local index = ns.Matcher.BuildIndex(fixtureBook())
+    local hits = ns.Matcher.Match(text, ns.Util.Normalize(text), index)
+    T.Eq(#hits, 2, "both gems matched")
+    T.Eq(hits[1].itemID ~= hits[2].itemID, true, "two distinct cuts")
+end)
