@@ -5,6 +5,26 @@ local Barker = ns.Barker
 
 local MAX_LEN = 255
 
+-- The reminder counts from the last bark that actually went out, not from
+-- when barking was switched on, so sending one by hand resets the clock.
+-- That means polling rather than a ticker set to the full interval.
+local POLL_INTERVAL = 5
+
+local function Now()
+    return GetServerTime and GetServerTime() or time()
+end
+
+-- Pure.
+function Barker.IsDue(lastSentAt, now, intervalSec)
+    return (now - (lastSentAt or 0)) >= intervalSec
+end
+
+function Barker.SecondsUntilDue()
+    local s = ns.db.settings.bark
+    local left = s.intervalSec - (Now() - (s.lastSentAt or 0))
+    return left > 0 and math.floor(left) or 0
+end
+
 -- Pure. Fills the template with as many gem links as fit under maxLen and
 -- reports where the rotation cursor should land next.
 function Barker.Fit(entries, cursor, template, maxLen, perBark)
@@ -114,7 +134,9 @@ function Barker.Tick(force)
     -- Only advance on a message that actually went out, so a skipped tick
     -- never silently drops gems out of the rotation.
     s.cursor = nextCursor
+    s.lastSentAt = Now()
     Barker.pending = false
+    Barker.lastSkipReason = nil
     return true, used
 end
 
@@ -180,20 +202,34 @@ function Barker.Alert()
     return true
 end
 
+-- Runs every few seconds and only acts once the interval has elapsed since
+-- the last bark actually sent.
+function Barker.Poll()
+    local s = ns.db.settings.bark
+    if not s.enabled or not ns.Enabled() then return end
+    if Barker.pending then return end
+    if not Barker.IsDue(s.lastSentAt, Now(), s.intervalSec) then return end
+
+    local ok, reason = Barker.Alert()
+    if not ok then
+        -- A skip is worth saying once, not every five seconds. Repeating it
+        -- until the reason changes would be its own kind of spam.
+        if reason ~= Barker.lastSkipReason then
+            ns.Print("bark due but skipped: " .. tostring(reason))
+            Barker.lastSkipReason = reason
+        end
+    else
+        Barker.lastSkipReason = nil
+    end
+end
+
 function Barker.Start(immediate)
     Barker.Stop()
     if immediate then
         local ok, info = Barker.Tick()
         if not ok then ns.Print("first bark skipped: " .. tostring(info)) end
     end
-    Barker.ticker = C_Timer.NewTicker(ns.db.settings.bark.intervalSec, function()
-        local ok, info = Barker.Alert()
-        if not ok then
-            -- Always surface a skip. Silently doing nothing is indistinguishable
-            -- from being broken, which is exactly how this looked in testing.
-            ns.Print("bark skipped: " .. tostring(info))
-        end
-    end)
+    Barker.ticker = C_Timer.NewTicker(POLL_INTERVAL, Barker.Poll)
 end
 
 function Barker.Preview()

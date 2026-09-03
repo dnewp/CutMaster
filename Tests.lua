@@ -957,3 +957,16 @@ T.Case("An invite acknowledges every cut requested, not just the first", functio
     T.Eq(#hits, 2, "both gems matched")
     T.Eq(hits[1].itemID ~= hits[2].itemID, true, "two distinct cuts")
 end)
+
+T.Case("A bark is due measured from the last one actually sent", function()
+    -- Sending by hand resets the clock: the reminder must not fire a few
+    -- seconds later just because the interval elapsed since barking was
+    -- switched on.
+    T.Eq(ns.Barker.IsDue(1000, 1179, 180), false, "not yet")
+    T.Eq(ns.Barker.IsDue(1000, 1180, 180), true, "exactly due")
+    T.Eq(ns.Barker.IsDue(1000, 5000, 180), true, "long overdue")
+    -- now is a real epoch timestamp, so with lastSentAt unset the elapsed
+    -- time dwarfs any interval and a bark is due straight away.
+    T.Eq(ns.Barker.IsDue(nil, 1788441671, 180), true, "never sent, due immediately")
+    T.Eq(ns.Barker.IsDue(0, 1788441671, 600), true, "a zeroed timestamp is also due")
+end)

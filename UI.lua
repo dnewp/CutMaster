@@ -172,7 +172,9 @@ function UI.Refresh()
         n, gems, #ns.Barker.AdvertisedEntries(), #ns.Orders.OpenList(),
         s.bark.enabled and "|cff44ff44on|r" or "|cffff4444off|r",
         s.invite.enabled and "|cff44ff44on|r" or "|cffff4444off|r",
-        ns.Barker.pending and "  |  |cffffcc00BARK READY|r" or ""))
+        ns.Barker.pending and "  |  |cffffcc00BARK READY|r"
+            or (s.bark.enabled and ("  |  next bark in "
+                .. ns.Barker.SecondsUntilDue() .. "s") or "")))
 
     if UI.current == 1 and UI.RefreshBook then UI.RefreshBook() end
     if UI.current == 2 and UI.RefreshBark then UI.RefreshBark() end

@@ -62,6 +62,7 @@ ns.Defaults = {
             perBark = 4,
             template = "WTS JC cuts: {gems} and more! /w me",
             cursor = 1,
+            lastSentAt = 0,
             onlyInCity = true,
             pauseCombat = true,
             pauseInstance = true,
@@ -461,7 +462,8 @@ local function HandleSlash(input)
         end
         ns.Print(string.format("auto invite %s   barking %s (%ds, timer %s)   capture %s   debug %s",
             onoff(s.invite.enabled), onoff(s.bark.enabled), s.bark.intervalSec,
-            ns.Barker.ticker and "running" or "stopped",
+            ns.Barker.ticker
+                and ("next in " .. ns.Barker.SecondsUntilDue() .. "s") or "stopped",
             onoff(s.captureAll), onoff(s.debug)))
         ns.Print(string.format("advertising %d recipes", #ns.Barker.AdvertisedEntries()))
         ns.Print(string.format("book: %d recipes (%d gems), scanned %s",

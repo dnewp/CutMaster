@@ -47,6 +47,9 @@ function M.Init()
                 s.invite.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
             if ns.Barker.pending then
                 tt:AddLine("|cffffcc00A bark is ready. Right click to send.|r")
+            elseif ns.db.settings.bark.enabled then
+                tt:AddLine(string.format("|cff888888next bark in %ds|r",
+                    ns.Barker.SecondsUntilDue()))
             end
             tt:AddLine(" ")
             tt:AddLine("|cff888888Left click: open CutMaster|r")
