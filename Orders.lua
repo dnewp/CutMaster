@@ -251,12 +251,18 @@ function Orders.ActiveList()
     return out
 end
 
-function Orders.PendingCount()
-    local n = 0
+-- Not counted as open work (see OpenList above), but still worth seeing and
+-- still cancellable, so the Tracker has something to render for it.
+function Orders.PendingList()
+    local out = {}
     for _, o in ipairs(ns.db.orders) do
-        if o.status == "pending" then n = n + 1 end
+        if o.status == "pending" then out[#out + 1] = o end
     end
-    return n
+    return out
+end
+
+function Orders.PendingCount()
+    return #Orders.PendingList()
 end
 
 function Orders.ByID(id)

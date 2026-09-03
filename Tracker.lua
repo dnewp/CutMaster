@@ -226,22 +226,50 @@ function Tracker.Refresh()
         end
     end
 
-    if #orders == 0 then
+    -- Pending orders are deliberately not counted as open work above (they
+    -- may never join), but they still need a way to act on them right here:
+    -- a static "waiting for them to join" line with nothing clickable left
+    -- no way to cancel or force one done without going to the full Orders
+    -- tab. Header only, no item ticks: nothing has actually been handed over
+    -- yet, so there is nothing to check off.
+    local pendingList = ns.Orders.PendingList()
+    for _, o in ipairs(pendingList) do
+        if used >= MAX_ROWS then break end
+        used = used + 1
+        local head = GetRow(used)
+        head.check:Hide()
+        head.text:SetPoint("LEFT", 2, 0)
+        head.text:SetText(string.format("|cffaaaaaa%s|r  %s",
+            o.player, STATUS_SHORT.pending))
+        head:SetScript("OnMouseUp", function(_, button)
+            if button ~= "RightButton" then return end
+            ns.Orders.SetStatus(o, "cancelled",
+                GetServerTime and GetServerTime() or time())
+            ns.Print(string.format(
+                "order #%d for %s cancelled. |cff888888/cm order reopen %d to undo|r",
+                o.id, o.player, o.id))
+            Tracker.Refresh()
+        end)
+        head:SetHeight(HEADER_H)
+        head:SetPoint("TOPLEFT", 0, -y)
+        head:Show()
+        y = y + HEADER_H
+    end
+
+    if #orders == 0 and #pendingList == 0 then
         used = used + 1
         local row = GetRow(used)
         row.check:Hide()
         row.text:SetPoint("LEFT", 2, 0)
         row:SetScript("OnMouseUp", nil)
-        row.text:SetText(ns.Orders.PendingCount() > 0
-            and "|cff888888waiting for them to join|r"
-            or "|cff888888no open orders|r")
+        row.text:SetText("|cff888888no open orders|r")
         row:SetHeight(ITEM_H)
         row:SetPoint("TOPLEFT", 0, -y)
         row:Show()
         y = y + ITEM_H
     end
 
-    local pending = ns.Orders.PendingCount()
+    local pending = #pendingList
     Tracker.title:SetText(string.format(
         "Orders  |cff888888%d open, %d to cut%s|r", #orders, remaining,
         pending > 0 and (", " .. pending .. " not joined") or ""))

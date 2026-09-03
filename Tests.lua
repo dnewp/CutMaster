@@ -971,6 +971,7 @@ T.Case("OpenList only counts people who actually joined", function()
     T.Eq(#ns.Orders.OpenList(), 2, "grouped and mats only")
     T.Eq(#ns.Orders.ActiveList(), 3, "pending included in the full picture")
     T.Eq(ns.Orders.PendingCount(), 1, "one still waiting to join")
+    T.Eq(ns.Orders.PendingList()[1].player, "A", "pending list surfaces who it is, not just a count")
     T.Eq(ns.Orders.ByID(3).player, "C", "lookup by id")
     ns.db.orders = saved
 end)
