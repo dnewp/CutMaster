@@ -975,6 +975,48 @@ T.Case("OpenList only counts people who actually joined", function()
     ns.db.orders = saved
 end)
 
+T.Case("ExpireStale cancels a pending order nobody joined for in time", function()
+    local saved = ns.db.orders
+    ns.db.orders = {
+        { id = 1, player = "A", status = "pending", createdAt = 1000, items = {} },
+        { id = 2, player = "B", status = "pending", createdAt = 1290, items = {} },
+        { id = 3, player = "C", status = "grouped", createdAt = 1000, items = {} },
+    }
+    local expired = ns.Orders.ExpireStale(1300, 300)
+    T.Eq(#expired, 1, "only the one past the timeout")
+    T.Eq(ns.Orders.ByID(1).status, "cancelled", "A timed out")
+    T.Eq(ns.Orders.ByID(2).status, "pending", "B is not there yet")
+    T.Eq(ns.Orders.ByID(3).status, "grouped",
+        "already grouped is not touched by the pending timeout")
+    ns.db.orders = saved
+end)
+
+T.Case("CancelPending closes an order for someone who declined", function()
+    local saved = ns.db.orders
+    ns.db.orders = { { id = 1, player = "Goopyfloyd", status = "pending", items = {} } }
+    local o = ns.Orders.CancelPending("Goopyfloyd", 5000)
+    T.Eq(o.status, "cancelled", "declined order is cancelled")
+    T.Eq(ns.Orders.Open("Goopyfloyd"), nil, "no longer open")
+    ns.db.orders = saved
+end)
+
+T.Case("CancelPending leaves an order alone once they have actually grouped", function()
+    local saved = ns.db.orders
+    ns.db.orders = { { id = 1, player = "Goopyfloyd", status = "grouped", items = {} } }
+    local o = ns.Orders.CancelPending("Goopyfloyd", 5000)
+    T.Eq(o, nil, "grouped orders are not what CancelPending touches")
+    T.Eq(ns.Orders.ByID(1).status, "grouped", "unchanged")
+    ns.db.orders = saved
+end)
+
+T.Case("DeclinedName reads a player out of the system decline message", function()
+    local fmt = "%s declines your group invitation."
+    T.Eq(ns.Inviter.DeclinedName("Goopyfloyd declines your group invitation.", fmt),
+        "Goopyfloyd", "name extracted")
+    T.Eq(ns.Inviter.DeclinedName("Something unrelated happened.", fmt), nil,
+        "unrelated system message does not match")
+end)
+
 T.Case("NearMiss reports whether the family name was complete", function()
     local book = {
         [1] = { itemID = 1, name = "Balanced Shadowsong Amethyst",

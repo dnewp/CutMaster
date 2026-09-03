@@ -88,6 +88,18 @@ function Inviter.Invite(name, matched, ctx)
     end)
 end
 
+-- Pure. Extracts the player name from a CHAT_MSG_SYSTEM decline notice by
+-- turning the client's own localized format string (e.g. ERR_DECLINE_GROUP_S,
+-- "%s declines your group invitation.") into a match pattern, rather than
+-- hardcoding English wording that breaks on other locales.
+function Inviter.DeclinedName(text, fmt)
+    if not text or not fmt then return nil end
+    local pre, post = fmt:match("^(.-)%%s(.*)$")
+    if not pre then return nil end
+    local pattern = "^" .. ns.Util.EscapePattern(pre) .. "(.+)" .. ns.Util.EscapePattern(post) .. "$"
+    return text:match(pattern)
+end
+
 -- Sends a whisper immediately, subject to the short conversational cooldown.
 -- Whispers are not protected the way public channel messages are, so this
 -- works from an event handler.

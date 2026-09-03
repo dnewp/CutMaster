@@ -266,6 +266,34 @@ function Orders.ByID(id)
     return nil
 end
 
+-- A pending order nobody ever joined for is not real work in progress: they
+-- may have missed the invite, alt-tabbed, or simply changed their mind. Left
+-- alone it sits in the queue forever looking like a live customer. Only
+-- "pending" is touched: once someone has actually grouped up, a slow reply
+-- is not the same problem and should not be auto-cancelled out from under
+-- them.
+function Orders.ExpireStale(now, timeoutSec)
+    local expired = {}
+    for _, o in ipairs(ns.db.orders) do
+        if o.status == "pending" and (now - o.createdAt) >= timeoutSec then
+            Orders.SetStatus(o, "cancelled", now)
+            expired[#expired + 1] = o
+        end
+    end
+    return expired
+end
+
+-- Declining is a faster, explicit version of the same thing: no need to wait
+-- out the timeout once they have said no outright.
+function Orders.CancelPending(player, now)
+    local o = Orders.Open(player)
+    if o and o.status == "pending" then
+        Orders.SetStatus(o, "cancelled", now)
+        return o
+    end
+    return nil
+end
+
 -- Promote anyone who has now actually joined the group.
 function Orders.PromoteGrouped(now)
     if not ns.Enabled() then return 0 end
@@ -280,4 +308,29 @@ function Orders.PromoteGrouped(now)
     end
     if promoted > 0 and ns.Tracker then ns.Tracker.Notify() end
     return promoted
+end
+
+-- Checking every 5 min for a 5 min timeout would let one slip through for
+-- nearly double the configured window. A minute is close enough without
+-- being wasteful.
+local POLL_INTERVAL = 60
+
+function Orders.Poll()
+    if not ns.Enabled() then return end
+    local timeout = ns.db.settings.orders.pendingTimeoutSec
+    if not timeout or timeout <= 0 then return end
+
+    local now = GetServerTime and GetServerTime() or time()
+    local expired = Orders.ExpireStale(now, timeout)
+    for _, o in ipairs(expired) do
+        ns.Print(string.format(
+            "|cff888888order #%d for %s expired, never joined within %d min.|r",
+            o.id, o.player, math.floor(timeout / 60)))
+    end
+    if #expired > 0 and ns.Tracker then ns.Tracker.Refresh() end
+end
+
+function Orders.StartExpiryTicker()
+    if Orders.expiryTicker then Orders.expiryTicker:Cancel() end
+    Orders.expiryTicker = C_Timer.NewTicker(POLL_INTERVAL, Orders.Poll)
 end

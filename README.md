@@ -161,6 +161,8 @@ Three limits are imposed by WoW itself, not by CutMaster. They are worth knowing
 | `/cm tracker` | Toggle the slim tracker window |
 | `/cm income` | Earnings summary |
 
+An order starts **pending** the moment someone is invited, and only becomes an actual open order once they join the group. If they never join — missed the invite, declined it, or just wandered off — the order auto-cancels after 5 minutes so it stops sitting in the queue. Declining outright closes it immediately, no need to wait out the timeout.
+
 ### Testing and tuning
 | Command | Effect |
 |---|---|

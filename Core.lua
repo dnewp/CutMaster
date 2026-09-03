@@ -159,6 +159,7 @@ ns.Defaults = {
             autoFillTrade = true,
             promptOnDone = true,
             keepDoneDays = 30,
+            pendingTimeoutSec = 300,
         },
         enabled = true,
         gemStats = true,
@@ -178,6 +179,7 @@ frame:RegisterEvent("TRADE_SKILL_CLOSE")
 frame:RegisterEvent("CHAT_MSG_CHANNEL")
 frame:RegisterEvent("CHAT_MSG_WHISPER")
 frame:RegisterEvent("GROUP_ROSTER_UPDATE")
+frame:RegisterEvent("CHAT_MSG_SYSTEM")
 frame:RegisterEvent("CHAT_MSG_RAID_LEADER")
 frame:RegisterEvent("CHAT_MSG_RAID")
 frame:RegisterEvent("CHAT_MSG_PARTY_LEADER")
@@ -193,6 +195,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         ns.ApplyDefaults(CutMasterDB, ns.Defaults)
         ns.db = CutMasterDB
         if ns.db.settings.bark.enabled and ns.Enabled() then ns.Barker.Start() end
+        ns.Orders.StartExpiryTicker()
         if not ns.Enabled() then
             ns.Print("|cffff9900currently disabled.|r /cm enable to switch back on.")
         end
@@ -235,6 +238,19 @@ frame:SetScript("OnEvent", function(self, event, ...)
     elseif event == "GROUP_ROSTER_UPDATE" then
         if ns.db then
             ns.Orders.PromoteGrouped(GetServerTime and GetServerTime() or time())
+        end
+    elseif event == "CHAT_MSG_SYSTEM" then
+        local text = ...
+        local name = ns.db and ns.Inviter.DeclinedName(text, _G.ERR_DECLINE_GROUP_S)
+        if name then
+            local short = name:gsub("%-.*", "")
+            local o = ns.Orders.CancelPending(
+                short, GetServerTime and GetServerTime() or time())
+            if o then
+                ns.Print(string.format(
+                    "|cff888888%s declined the invite.|r Order #%d closed.", short, o.id))
+                if ns.Tracker then ns.Tracker.Refresh() end
+            end
         end
     elseif event == "CHAT_MSG_WHISPER_INFORM" then
         local text, target = ...
