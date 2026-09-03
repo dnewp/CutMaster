@@ -313,17 +313,27 @@ end
 --------------------------------------------------------------------------------
 
 function UI.BuildBark(page)
-    local toggle = Button(page, "Toggle Barking", 120, 22)
-    toggle:SetPoint("TOPLEFT", 0, 0)
-    toggle:SetScript("OnClick", function()
+    -- A checkbox rather than a button, so the on/off state is visible at a
+    -- glance. This flag only gates the periodic "bark ready" nag (sound +
+    -- print) -- manual sends via Bark Now, the key binding, the minimap
+    -- right click, and /cm send all bypass it, so turning reminders off
+    -- does not stop you from barking by hand.
+    local remind = CreateFrame("CheckButton", nil, page, "UICheckButtonTemplate")
+    remind:SetSize(24, 24)
+    remind:SetPoint("TOPLEFT", 0, 0)
+    remind:SetScript("OnClick", function(self)
         local s = ns.db.settings.bark
-        s.enabled = not s.enabled
+        s.enabled = self:GetChecked() and true or false
         if s.enabled then ns.Barker.Start(true) else ns.Barker.Stop() end
         UI.Refresh()
     end)
+    UI.remindCheck = remind
+
+    local remindLbl = Label(page, "Remind me when it's time to bark")
+    remindLbl:SetPoint("LEFT", remind, "RIGHT", 4, 0)
 
     local sendNow = Button(page, "Send Now", 90, 22)
-    sendNow:SetPoint("LEFT", toggle, "RIGHT", 6, 0)
+    sendNow:SetPoint("TOPLEFT", 0, -28)
     sendNow:SetScript("OnClick", function()
         local ok, info = ns.Barker.Tick(true)
         if not ok then ns.Print("bark skipped: " .. tostring(info)) end
@@ -331,7 +341,7 @@ function UI.BuildBark(page)
     end)
 
     local slider = CreateFrame("Slider", "CutMasterIntervalSlider", page, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", 0, -50)
+    slider:SetPoint("TOPLEFT", 0, -60)
     slider:SetWidth(260)
     slider:SetMinMaxValues(30, 600)
     slider:SetValueStep(10)
@@ -388,6 +398,7 @@ function UI.BuildBark(page)
 
     function UI.RefreshBark()
         local s = ns.db.settings.bark
+        remind:SetChecked(s.enabled and true or false)
         slider:SetValue(s.intervalSec)
         _G[slider:GetName() .. "Text"]:SetText("Reminder interval: " .. s.intervalSec .. "s")
         if not tpl:HasFocus() then tpl:SetText(s.template) end
