@@ -123,6 +123,13 @@ function Classifier.Evaluate(ctx)
         if Util.HasPhrase(ctx.norm, phrase) then buyer(phrase, weight) end
     end
 
+    -- A recognised profession request ("LF jewelcrafter", "any jc around") is
+    -- itself the ask, whether or not its exact wording happens to also be a
+    -- buyerWords phrase. Without this, variants like "LF jewelcrafter" (as
+    -- opposed to "lf jc") scored zero buyer signal and requireBuyerSignal
+    -- silently dropped them despite isProfReq being true.
+    if isProfReq then buyer("professionRequest", 1) end
+
     if hasQuestion then buyer("question", QUESTION_WEIGHT) end
 
     -- Content vetoes are applied after scoring so the log still shows which

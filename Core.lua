@@ -122,6 +122,9 @@ ns.Defaults = {
                 -- requireBuyerSignal, since none of the phrases above cover
                 -- this very ordinary "LF <gem> crafter/cutter" phrasing.
                 ["crafter"] = 2, ["cutter"] = 2,
+                -- "LF someone who can MAKE [gem]" is the same request as
+                -- "who can cut", just worded with a different verb.
+                ["who can make"] = 3,
             },
             -- Asking for the profession itself, with no gem named. Word order
             -- separates these from a competitor's "JC LFW".

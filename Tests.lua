@@ -849,6 +849,24 @@ T.Case("A bare profession request still invites", function()
     T.Eq(r.verdict, "invite", "still invites when nothing specific was named")
 end)
 
+-- Real Trade chat message from Goopyfloyd that got dropped with
+-- reason "no buyer signal": "LF JEWELCRAFTER" is a professionWords phrase
+-- but was never mirrored into buyerWords, so requireBuyerSignal blocked it
+-- even though isProfReq was true.
+T.Case("A profession request worded without 'jc' still invites", function()
+    local r = classify("LF JEWELCRAFTER")
+    T.Eq(r.verdict, "invite", "verdict")
+    T.Eq(r.professionRequest, true, "flagged as a profession request")
+end)
+
+-- Also from Goopyfloyd, same session: "LF SOMEONE WHO CAN MAKE [gem]" matched
+-- the gem name but scored zero buyer signal, since only "can cut" phrasing
+-- was recognised, not "can make".
+T.Case("Someone who can make a named gem is a buyer, not just can cut", function()
+    local r = classify("LF someone who can make bold living ruby")
+    T.Eq(r.verdict, "invite", "verdict")
+end)
+
 T.Case("A profession request naming a cut we DO have invites", function()
     local text = "LF JC for " .. RUBY_LINK
     local index = ns.Matcher.BuildIndex(fixtureBook())
