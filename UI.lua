@@ -532,6 +532,9 @@ function UI.BuildInvite(page)
           function(v) ns.db.settings.invite.fromWhisper = v end },
         { "Whisper them after inviting", function() return ns.db.settings.invite.whisper.enabled end,
           function(v) ns.db.settings.invite.whisper.enabled = v end },
+        { "Whisper-only: detect and reply, never auto-invite",
+          function() return ns.db.settings.invite.whisperOnly end,
+          function(v) ns.db.settings.invite.whisperOnly = v end },
         { "Record every Trade message (capture)", function() return ns.db.settings.captureAll end,
           function(v) ns.db.settings.captureAll = v end },
         { "Debug output", function() return ns.db.settings.debug end,
@@ -549,10 +552,10 @@ function UI.BuildInvite(page)
     end
 
     local partyLabel = Label(page, "Stop inviting at party size")
-    partyLabel:SetPoint("TOPLEFT", 4, -146)
+    partyLabel:SetPoint("TOPLEFT", 4, -172)
 
     local slider = CreateFrame("Slider", "CutMasterPartySlider", page, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", 4, -178)
+    slider:SetPoint("TOPLEFT", 4, -204)
     slider:SetWidth(220)
     slider:SetMinMaxValues(2, 5)
     slider:SetValueStep(1)
@@ -587,7 +590,7 @@ function UI.BuildInvite(page)
           label = "They typed half a gem name  |cff888888{gems}|r" },
     }
 
-    local y = -196
+    local y = -222
     for _, t in ipairs(templates) do
         local lbl = Label(page, t.label)
         lbl:SetPoint("TOPLEFT", 0, y)

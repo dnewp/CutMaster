@@ -76,6 +76,8 @@ Everything is tunable in the **Filter** tab and every decision is recorded in th
 
 Every one of those messages is editable in the **Invite** tab, with a Reset per line. **Leave a line empty and nothing is sent for that case.**
 
+Turn on **whisper-only mode** (Invite tab, or `/cm invite whisperonly`) to keep all of the above exactly as it is but skip the "Invites them" part everywhere it appears — CutMaster still detects and replies, you decide when to actually invite.
+
 ### Tracks orders
 
 An order opens when someone asks, and counts as *open* only once they actually join your group. Quantities come from **the mats they hand you**, not from what they typed, because customers say "bold living ruby" and then trade you three.
@@ -147,6 +149,7 @@ Three limits are imposed by WoW itself, not by CutMaster. They are worth knowing
 | Command | Effect |
 |---|---|
 | `/cm invite` | Toggle auto-invite from Trade chat |
+| `/cm invite whisperonly` | Toggle whisper-only mode: still detects and replies, never auto-invites |
 | `/cm log` | Recent decisions with score breakdowns |
 | `/cm clearflags` | Clear the auto competitor flag from everyone |
 

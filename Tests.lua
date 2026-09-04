@@ -410,6 +410,21 @@ T.Case("BlockReason reports auto invite disabled", function()
     T.Eq(ns.Inviter.BlockReason({}, 5000, 1, s), "invites disabled", "reason")
 end)
 
+-- Requested by a CurseForge commenter: whisperOnly should still detect and
+-- reply, just never send the actual party invite. A full group is not a
+-- reason to block that, since nothing is being invited into it.
+T.Case("BlockReason ignores a full group in whisper-only mode", function()
+    local s = ns.DeepCopy(ns.Defaults.settings.invite)
+    s.whisperOnly = true
+    T.Eq(ns.Inviter.BlockReason({}, 5000, 5, s), nil, "not blocked")
+end)
+
+T.Case("BlockReason still enforces the cooldown in whisper-only mode", function()
+    local s = ns.DeepCopy(ns.Defaults.settings.invite)
+    s.whisperOnly = true
+    T.Eq(ns.Inviter.BlockReason({ lastInviteAt = 1000 }, 1100, 1, s), "cooldown", "reason")
+end)
+
 local function barkEntries(n)
     local out = {}
     for i = 1, n do

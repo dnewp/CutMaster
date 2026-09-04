@@ -72,6 +72,11 @@ ns.Defaults = {
             maxParty = 5,
             playerCooldownSec = 600,
             fromWhisper = true,
+            -- Detect and whisper exactly as normal, but leave the actual
+            -- party invite to the player. Requested by someone who wanted to
+            -- see what a customer needs before committing to invite them,
+            -- e.g. realising they lack the cut after the addon already did.
+            whisperOnly = false,
             whisper = {
                 enabled = true,
                 autoReply = true,
@@ -308,8 +313,16 @@ local function HandleSlash(input)
         end
     elseif cmd == "invite" then
         local s = ns.db.settings.invite
-        s.enabled = not s.enabled
-        ns.Print("auto invite " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
+        if rest == "whisperonly" then
+            s.whisperOnly = not s.whisperOnly
+            ns.Print("whisper-only mode " .. (s.whisperOnly
+                and "|cff44ff44on|r: detects and whispers customers, but never "
+                    .. "auto-invites. Invite them yourself when you're ready."
+                or "|cffff4444off|r: back to auto-inviting."))
+        else
+            s.enabled = not s.enabled
+            ns.Print("auto invite " .. (s.enabled and "|cff44ff44on|r" or "|cffff4444off|r"))
+        end
     elseif cmd == "bark" then
         local s = ns.db.settings.bark
         local secs = tonumber(rest)
@@ -568,7 +581,7 @@ local function HandleSlash(input)
         ns.Print("  /cm trywhisper <msg>, /cm tryparty <msg>, /cm bark [secs],")
         ns.Print("  /cm send, /cm preview,")
         ns.Print("  /cm adv rare|all|none|+text|-text,")
-        ns.Print("  /cm invite, /cm log, /cm debug, /cm capture, /cm clearcapture,")
+        ns.Print("  /cm invite, /cm invite whisperonly, /cm log, /cm debug, /cm capture, /cm clearcapture,")
         ns.Print("  /cm orders, /cm order add|done|cancel, /cm tracker, /cm income,")
         ns.Print("  /cm stats,")
         ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test,")

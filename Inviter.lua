@@ -12,9 +12,13 @@ local WHISPER_DELAY = 1.5
 local MAX_GEMS_PER_WHISPER = 3
 
 -- Pure. Reasons the invite cannot happen regardless of message content.
+-- "group full" is about the party itself, so it is meaningless in
+-- whisperOnly mode: nothing is being invited into it.
 function Inviter.BlockReason(playerState, now, groupSize, settings)
     if not settings.enabled then return "invites disabled" end
-    if groupSize >= settings.maxParty then return "group full" end
+    if not settings.whisperOnly and groupSize >= settings.maxParty then
+        return "group full"
+    end
     if playerState and playerState.lastInviteAt
         and (now - playerState.lastInviteAt) < settings.playerCooldownSec then
         return "cooldown"
@@ -38,12 +42,20 @@ function Inviter.Invite(name, matched, ctx)
     local settings = ns.db.settings.invite
     local now = GetServerTime and GetServerTime() or time()
 
-    DoInvite(short)
+    -- Whisper-only mode still detects and responds exactly as normal, it
+    -- just leaves the actual party invite to the player: right-click and
+    -- invite whenever they decide, e.g. after realising from the whisper
+    -- reply that they do not actually have the cut asked for.
+    if not settings.whisperOnly then
+        DoInvite(short)
+    end
 
     local state = ns.Players.Get(ns.db, short)
     state.lastInviteAt = now
 
-    if PlaySound and SOUNDKIT then PlaySound(SOUNDKIT.MAP_PING) end
+    if not settings.whisperOnly and PlaySound and SOUNDKIT then
+        PlaySound(SOUNDKIT.MAP_PING)
+    end
 
     -- Acknowledge EVERY cut they asked for, not just the first. Someone
     -- requesting two gems and being told about one reads as half an answer.
@@ -59,7 +71,9 @@ function Inviter.Invite(name, matched, ctx)
         lack[i] = ctx.cannotDo[i]
     end
 
-    ns.Print(string.format("invited %s for %s%s", short, haveText or "a cut",
+    ns.Print(string.format(settings.whisperOnly
+        and "%s asked about %s%s  |cff888888(whisper-only, no invite sent)|r"
+        or "invited %s for %s%s", short, haveText or "a cut",
         #lack > 0 and ("  |cffff9900cannot do: " .. table.concat(lack, " ") .. "|r") or ""))
 
     if not settings.whisper.enabled then return end
