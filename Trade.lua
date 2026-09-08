@@ -147,6 +147,26 @@ local function FreeTradeSlots()
     return TRADE_SLOTS - used
 end
 
+-- What is ACTUALLY sitting in "you will give" right now, per item.
+local function OutgoingCounts()
+    return (ReadSide(GetTradePlayerItemLink, GetTradePlayerItemInfo))
+end
+
+-- Pure. What is still owed, measured against the trade window rather than
+-- against our own record of what we think we already moved. Two separate
+-- one-count stacks of the same gem used to deliver only one of them: the
+-- first use() worked, the second did nothing, and the fill loop subtracted
+-- for it anyway and declared the order complete. Counting the real window
+-- means a use() that quietly does nothing is seen instead of assumed away.
+function Trade.StillWanted(wanted, outgoing)
+    local left = {}
+    for id, qty in pairs(wanted) do
+        local short = qty - (outgoing[id] or 0)
+        if short > 0 then left[id] = short end
+    end
+    return left
+end
+
 -- Pure. Bind on pickup is skipped: it cannot be traded, so never queue one.
 function Trade.WantedFromOrder(order, book)
     local wanted = {}
@@ -196,24 +216,40 @@ function Trade.StopFill()
     end
 end
 
-local function ReportFill(order, added, wanted)
-    if added > 0 then
-        ns.Print(string.format("added %d stack%s to the trade for order #%d.",
-            added, added == 1 and "" or "s", order.id))
+local function NameOf(id)
+    local e = ns.db.book[id]
+    return e and (e.link or e.name) or tostring(id)
+end
+
+local function ReportFill(order, wanted, short, slotsFull)
+    -- Counted off the trade window itself, so the number reported is what the
+    -- customer will actually receive.
+    local outgoing = OutgoingCounts()
+    local delivered = 0
+    for id, qty in pairs(wanted) do
+        local got = outgoing[id] or 0
+        delivered = delivered + (got < qty and got or qty)
     end
-    -- WoW's own 6 slot cap on "you will give" items, not a bug: an order
-    -- spanning more than 6 distinct gems genuinely needs a second trade.
-    local remaining = {}
-    for id, q in pairs(wanted) do
-        if q > 0 then
-            local e = ns.db.book[id]
-            remaining[#remaining + 1] = (e and (e.link or e.name) or tostring(id)) .. " x" .. q
-        end
+    if delivered > 0 then
+        ns.Print(string.format("added %d gem%s to the trade for order #%d.",
+            delivered, delivered == 1 and "" or "s", order.id))
     end
-    if #remaining > 0 then
+
+    local list = {}
+    for id, q in pairs(short or {}) do
+        list[#list + 1] = NameOf(id) .. " x" .. q
+    end
+    if #list == 0 then return end
+
+    if slotsFull then
+        -- WoW's own 6 slot cap on "you will give" items, not a bug: an order
+        -- spanning more than 6 distinct gems genuinely needs a second trade.
         ns.Print("|cffff9900more than fits in one trade (6 slot limit): "
-            .. table.concat(remaining, ", ")
+            .. table.concat(list, ", ")
             .. ". Complete this trade, then open a new one for the rest.|r")
+    else
+        ns.Print("|cffff9900still short: " .. table.concat(list, ", ")
+            .. ". Add the rest by hand.|r")
     end
 end
 
@@ -230,7 +266,17 @@ function Trade.AutoFill()
     for _, q in pairs(wanted) do if q > 0 then anyWanted = true break end end
     if not anyWanted then return end
 
-    local added = 0
+    local misses = {}
+    local warned = {}
+    local overWarned = {}
+    local lastSeen = {}
+    local pending = nil
+
+    -- A use() that lands is visible in the trade window on the next tick, so
+    -- one that never shows up is retried rather than counted as delivered.
+    -- MAX_MISSES stops that retry becoming an endless loop when an item
+    -- genuinely will not go in.
+    local MAX_MISSES = 3
 
     -- One per tick, re-scanning bags fresh each time. Adding items in a
     -- single frame bugs the trade UI, and a stale scan is what caused the
@@ -241,34 +287,72 @@ function Trade.AutoFill()
             return
         end
 
-        if FreeTradeSlots() <= 0 then
+        local outgoing = OutgoingCounts()
+
+        -- Did the previous tick's use() actually land? Only a use that moved
+        -- nothing counts against the retry budget, so an order legitimately
+        -- needing several separate stacks of one gem is never cut short.
+        if pending then
+            local now = outgoing[pending] or 0
+            if now <= (lastSeen[pending] or 0) then
+                misses[pending] = (misses[pending] or 0) + 1
+            else
+                misses[pending] = 0
+            end
+            pending = nil
+        end
+
+        local short = Trade.StillWanted(wanted, outgoing)
+
+        -- Anything past its retry budget is reported once and then left
+        -- alone, so one stubborn gem cannot stall the rest of the order.
+        for id in pairs(short) do
+            if (misses[id] or 0) >= MAX_MISSES then
+                if not warned[id] then
+                    warned[id] = true
+                    ns.Print(string.format(
+                        "|cffff9900could not add %s to the trade. Drag it in by hand.|r",
+                        NameOf(id)))
+                end
+                short[id] = nil
+            end
+        end
+
+        if not next(short) then
             Trade.StopFill()
-            ReportFill(order, added, wanted)
+            ReportFill(order, wanted, nil)
             return
         end
 
-        local row = Trade.NextFillSlot(wanted, BagSnapshot())
+        if FreeTradeSlots() <= 0 then
+            Trade.StopFill()
+            ReportFill(order, wanted, short, true)
+            return
+        end
+
+        local row = Trade.NextFillSlot(short, BagSnapshot())
         if not row then
             Trade.StopFill()
-            ReportFill(order, added, wanted)
+            ReportFill(order, wanted, short)
             return
         end
 
         local _, useItem = Container()
         if useItem then
-            useItem(row.bag, row.slot)
-            added = added + 1
-
-            local still = wanted[row.itemID] or 0
-            if row.count > still then
+            local still = short[row.itemID] or 0
+            if row.count > still and not overWarned[row.itemID] then
                 -- UseContainerItem moves the whole stack; there is no partial
                 -- move. Flagged rather than silently over-delivering with no
-                -- explanation.
+                -- explanation. Said once, not once per retry.
+                overWarned[row.itemID] = true
                 ns.Print(string.format(
                     "|cffff9900%s: stack of %d moved, only %d was needed for this order.|r",
                     row.link, row.count, still))
             end
-            wanted[row.itemID] = still - row.count
+
+            lastSeen[row.itemID] = outgoing[row.itemID] or 0
+            pending = row.itemID
+            useItem(row.bag, row.slot)
         end
     end)
 end

@@ -37,7 +37,20 @@ local WORDNUM = {
 
 function Matcher.BuildIndex(book)
     local index = { byID = {}, names = {}, aliases = {}, loose = {},
-                    bases = {}, baseTokens = {}, prefixOnly = {} }
+                    bases = {}, baseTokens = {}, prefixOnly = {}, reagents = {} }
+    for _, e in pairs(book or {}) do
+        -- Every raw gem any of our cuts consumes. A customer linking one is
+        -- showing us the stone they are bringing, not naming a cut they want,
+        -- so it must never be reported back as something we "don't have":
+        -- "lf jc with solid [Empyrean Sapphire]" got the reply "I can do
+        -- [Solid Empyrean Sapphire], but I don't have [Empyrean Sapphire]",
+        -- which reads as a refusal over the customer's own mats. Taken from
+        -- the whole book, not just matched cuts, since the stone they link is
+        -- often for a cut they have not named yet.
+        for rawID in pairs(e.reagents or {}) do
+            index.reagents[rawID] = true
+        end
+    end
     for itemID, e in pairs(book or {}) do
         -- Bind on pickup cannot be delivered, so never invite for one. Leaving
         -- it out of the index also lets NearMiss suggest the cuts we can

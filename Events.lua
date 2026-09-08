@@ -105,7 +105,10 @@ function Events.Process(text, author, source, opts)
     local namedUnknownGem = false
     if #matched == 0 then
         for _, id in ipairs(ns.Util.ExtractItemIDs(text)) do
-            if not ns.db.book[id] then
+            -- A raw gem we cut FROM is not a cut we lack. "LF JC
+            -- [Empyrean Sapphire]" is someone holding up their stone and
+            -- asking for a jeweller, which is a customer, not a dead end.
+            if not ns.db.book[id] and not Events.index.reagents[id] then
                 local classID = select(12, GetItemInfo(id))
                 if classID == 3 then namedUnknownGem = true break end
             end
@@ -125,6 +128,9 @@ function Events.Process(text, author, source, opts)
         for _, l in ipairs(ns.Util.ExtractItemLinks(text)) do
             if matchedSet[l.id] then
                 canDo[#canDo + 1] = l.link
+            elseif Events.index.reagents[l.id] then
+                -- Their own uncut stone, not a cut we lack. Saying "I don't
+                -- have that" about the mats they are bringing us is nonsense.
             elseif not ns.db.book[l.id] and select(12, GetItemInfo(l.id)) == 3 then
                 cannotDo[#cannotDo + 1] = l.link
             end

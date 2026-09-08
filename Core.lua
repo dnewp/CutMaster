@@ -130,6 +130,14 @@ ns.Defaults = {
                 -- "LF someone who can MAKE [gem]" is the same request as
                 -- "who can cut", just worded with a different verb.
                 ["who can make"] = 3,
+                -- Bzip's "LF [Smooth Lionseye]" named a gem we had and got
+                -- nothing: a bare "LF <gem>" with no other buyer phrase
+                -- scored zero, so requireBuyerSignal dropped it silently.
+                -- "LF" on its own is the single most common way to open a
+                -- buy request in Trade chat, so it earns a small score of
+                -- its own rather than needing another phrase to ride along
+                -- with it.
+                ["lf"] = 1,
             },
             -- Asking for the profession itself, with no gem named. Word order
             -- separates these from a competitor's "JC LFW".

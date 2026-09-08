@@ -188,6 +188,37 @@ local function matchIDs(text, book)
     return ids, hits
 end
 
+-- Phobophil wrote "lf jc with solid [Empyrean Sapphire]", linking the UNCUT
+-- stone they were bringing. We matched the Solid cut correctly, then also
+-- reported the raw stone as a cut we lack, and whispered back "I can do
+-- [Solid Empyrean Sapphire], but I don't have [Empyrean Sapphire]" -- a
+-- refusal over the customer's own mats. Reagents are what we cut FROM, so
+-- they can never be something we are missing.
+T.Case("BuildIndex knows which items are raw mats we cut from", function()
+    local book = {
+        [1] = { itemID = 1, name = "Solid Empyrean Sapphire", classID = 3,
+                bindType = 0, match = true, aliases = {},
+                reagents = { [500] = 1 } },
+        [2] = { itemID = 2, name = "Bold Living Ruby", classID = 3,
+                bindType = 0, match = true, aliases = {},
+                reagents = { [501] = 1 } },
+    }
+    local index = ns.Matcher.BuildIndex(book)
+    T.Eq(index.reagents[500], true, "raw stone for the sapphire cut")
+    T.Eq(index.reagents[501], true, "raw stone for the ruby cut")
+    T.Eq(index.reagents[1], nil, "a cut we make is not a raw mat")
+end)
+
+T.Case("BuildIndex collects reagents even from cuts that cannot match", function()
+    -- The stone a customer links is often for a cut they have not named, and
+    -- soulbound or match-disabled rows still tell us what is a raw mat.
+    local book = {
+        [1] = { itemID = 1, name = "Hidden Cut", classID = 3, bindType = 0,
+                match = false, aliases = {}, reagents = { [500] = 1 } },
+    }
+    T.Eq(ns.Matcher.BuildIndex(book).reagents[500], true, "still a raw mat")
+end)
+
 T.Case("Matcher hits an item link exactly", function()
     T.Eq(matchIDs("wtb " .. RUBY_LINK)[24033], "link", "link tier")
 end)
@@ -311,6 +342,16 @@ end)
 
 T.Case("Classifier invites LF plus will tip", function()
     T.Eq(classify("LF " .. RUBY_LINK .. " will tip").verdict, "invite", "verdict")
+end)
+
+-- Real Trade chat message from Bzip: "LF [Smooth Lionseye]" named a gem we
+-- had and got nothing, scoring zero buyer signal since a bare "LF <gem>"
+-- with no other phrase riding along with it wasn't recognised. Bzip never
+-- got a reply, whispered in frustration, and the order went to a competitor
+-- before the cooldown even cleared enough to retry.
+T.Case("Classifier invites a bare 'LF <gem>' with nothing else", function()
+    local r = classify("LF " .. RUBY_LINK)
+    T.Eq(r.verdict, "invite", "verdict")
 end)
 
 T.Case("Classifier withholds an invite for a bare link", function()
@@ -759,6 +800,27 @@ T.Case("NextFillSlot finds a bag row for a many-of-one order", function()
     local afterFirstMove = { snapshot[2] }
     local row2 = ns.Trade.NextFillSlot(wanted, afterFirstMove)
     T.Eq(row2.bag, 1, "second stack found on the next fresh scan")
+end)
+
+-- The "only ever one of each" bug: two separate one-count stacks of the same
+-- gem delivered only one. The first use() landed, the second quietly did
+-- nothing, and the loop subtracted for it anyway and called the order filled.
+-- Measuring the trade window instead of trusting our own subtraction is what
+-- makes a use() that did nothing visible.
+T.Case("StillWanted measures the trade window, not what we assumed we moved", function()
+    local wanted = { [50] = 2 }
+    T.Eq(ns.Trade.StillWanted(wanted, {})[50], 2, "nothing in the window yet")
+    T.Eq(ns.Trade.StillWanted(wanted, { [50] = 1 })[50], 1,
+        "one landed, one still owed")
+    T.Eq(ns.Trade.StillWanted(wanted, { [50] = 2 })[50], nil, "both landed")
+end)
+
+T.Case("StillWanted ignores extras already in the window", function()
+    local wanted = { [50] = 2, [60] = 1 }
+    local left = ns.Trade.StillWanted(wanted, { [50] = 5, [99] = 3 })
+    T.Eq(left[50], nil, "over-delivered gem is not still wanted")
+    T.Eq(left[60], 1, "the untouched gem still is")
+    T.Eq(left[99], nil, "an item not on the order is not tracked")
 end)
 
 T.Case("NextFillSlot handles multiple different gems in one order", function()
