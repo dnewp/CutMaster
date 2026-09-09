@@ -77,7 +77,7 @@ local function Commit(snapshot)
         for id, qty in pairs(rawMats) do
             order.matsReceived[id] = (order.matsReceived[id] or 0) + qty
         end
-        local needsSplit, added = ns.Orders.InferQuantities(
+        local needsSplit, added, unclear = ns.Orders.InferQuantities(
             order, order.matsReceived, ns.db.book)
 
         if ns.db.settings.orders.autoAdvanceMats and order.status ~= "done" then
@@ -92,6 +92,13 @@ local function Commit(snapshot)
         if needsSplit then
             ns.Print("  |cffff9900ambiguous: those mats fit more than one cut "
                 .. "they asked for. Set the split in the Orders tab.|r")
+        end
+        for _, rawID in ipairs(unclear) do
+            local raw = GetItemInfo and select(2, GetItemInfo(rawID))
+            ns.Print(string.format(
+                "  |cffff9900they traded %s but never named a cut you know for "
+                .. "it. Ask which one they want, then add it in the Orders "
+                .. "tab.|r", raw or ("item " .. rawID)))
         end
     end
 
@@ -128,12 +135,12 @@ local function Container()
         getInfo = function(bag, slot)
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if not info then return nil, 0 end
-            return info.hyperlink, info.stackCount or 1
+            return info.hyperlink, info.stackCount or 1, info.isLocked
         end
     elseif GetContainerItemInfo then
         getInfo = function(bag, slot)
-            local _, count, _, _, _, _, link = GetContainerItemInfo(bag, slot)
-            return link, count or 1
+            local _, count, locked, _, _, _, link = GetContainerItemInfo(bag, slot)
+            return link, count or 1, locked
         end
     end
     return numSlots, useItem, getInfo
@@ -150,6 +157,45 @@ end
 -- What is ACTUALLY sitting in "you will give" right now, per item.
 local function OutgoingCounts()
     return (ReadSide(GetTradePlayerItemLink, GetTradePlayerItemInfo))
+end
+
+-- What the customer has put in, per item, while the window is still open.
+local function IncomingCounts()
+    return (ReadSide(GetTradeTargetItemLink, GetTradeTargetItemInfo))
+end
+
+-- Pure. The order's quantities, raised to match the mats actually sitting in
+-- the window. Mats are only folded into the order when the trade CLOSES, but
+-- the fill runs when it OPENS, so a customer who hands over three stones and
+-- takes their cuts in one trade was filled for the order's default of one.
+-- Since the mats are what say how many cuts they want, reading them live
+-- fixes the count without waiting for the trade to end.
+--
+-- Only raised, never lowered: the order may legitimately be for more than
+-- this trade's stones, e.g. mats handed over earlier in a separate trade.
+function Trade.WantedWithMats(wanted, incoming, order, book)
+    local out = {}
+    for id, q in pairs(wanted) do out[id] = q end
+
+    for rawID, count in pairs(incoming or {}) do
+        local only, n = nil, 0
+        for _, it in ipairs(order.items or {}) do
+            local e = book[it.itemID]
+            if e and e.reagents and e.reagents[rawID] then
+                only, n = it.itemID, n + 1
+            end
+        end
+        -- Two cuts of theirs take the same stone: we cannot know the split,
+        -- and guessing means cutting the wrong gems. InferQuantities flags
+        -- that case at the trade window; here we simply leave it alone.
+        if n == 1 then
+            local per = book[only].reagents[rawID] or 1
+            local implied = per > 0 and math.floor(count / per) or 0
+            if implied > (out[only] or 0) then out[only] = implied end
+        end
+    end
+
+    return out
 end
 
 -- Pure. What is still owed, measured against the trade window rather than
@@ -193,16 +239,24 @@ function Trade.NextFillSlot(wanted, bagSnapshot)
     return nil
 end
 
+-- A gem placed in the trade window does NOT leave the bag: it stays in its
+-- slot, flagged locked, until the trade completes. Listing it anyway is what
+-- broke every multi-gem order. The loop would move slot 18, see slot 18 still
+-- holding the gem on the next pass, use it again to no effect, and after a
+-- few of those give up on that gem entirely -- having delivered exactly one.
+-- Locked slots are therefore not candidates: they are already in the window,
+-- or mid-move, and either way there is nothing left to send from them.
 local function BagSnapshot()
     local numSlots, _, getInfo = Container()
     local rows = {}
     if not numSlots or not getInfo then return rows end
     for bag = 0, 4 do
         for slot = 1, (numSlots(bag) or 0) do
-            local link, count = getInfo(bag, slot)
+            local link, count, locked = getInfo(bag, slot)
             local id = link and tonumber(link:match("|Hitem:(%d+)"))
-            if id then
-                rows[#rows + 1] = { bag = bag, slot = slot, itemID = id, link = link, count = count or 1 }
+            if id and not locked then
+                rows[#rows + 1] = { bag = bag, slot = slot, itemID = id,
+                                    link = link, count = count or 1 }
             end
         end
     end
@@ -221,7 +275,7 @@ local function NameOf(id)
     return e and (e.link or e.name) or tostring(id)
 end
 
-local function ReportFill(order, wanted, short, slotsFull)
+local function ReportFill(order, wanted, short, slotsFull, movedAny)
     -- Counted off the trade window itself, so the number reported is what the
     -- customer will actually receive.
     local outgoing = OutgoingCounts()
@@ -230,7 +284,8 @@ local function ReportFill(order, wanted, short, slotsFull)
         local got = outgoing[id] or 0
         delivered = delivered + (got < qty and got or qty)
     end
-    if delivered > 0 then
+    -- Never claim credit for gems the user dragged in themselves.
+    if delivered > 0 and movedAny then
         ns.Print(string.format("added %d gem%s to the trade for order #%d.",
             delivered, delivered == 1 and "" or "s", order.id))
     end
@@ -253,87 +308,191 @@ local function ReportFill(order, wanted, short, slotsFull)
     end
 end
 
+-- The fill happens over many ticks inside a trade window, where nothing can
+-- be observed after the fact. Recording what each tick actually saw is the
+-- only way to tell an item that would not move from one the loop never tried,
+-- so the last fill is always kept for /cm lastfill to read back.
+local function Trace(kind, data)
+    local t = ns.db and ns.db.lastFill
+    if not t then return end
+    if #t.ticks >= 60 then return end
+    data = data or {}
+    data.n, data.kind = #t.ticks + 1, kind
+    t.ticks[#t.ticks + 1] = data
+end
+
+local function CountsToString(t)
+    local parts = {}
+    for id, q in pairs(t or {}) do parts[#parts + 1] = id .. "x" .. q end
+    table.sort(parts)
+    return table.concat(parts, ",")
+end
+
 function Trade.AutoFill()
     Trade.StopFill()
     if not ns.Enabled() then return end
     if not ns.db.settings.orders.autoFillTrade then return end
 
     local order = Trade.partner and ns.Orders.Open(Trade.partner)
-    if not order then return end
 
-    local wanted = Trade.WantedFromOrder(order, ns.db.book)
+    ns.db.lastFill = {
+        at = GetServerTime and GetServerTime() or time(),
+        partner = Trade.partner,
+        orderID = order and order.id,
+        status = order and order.status,
+        ticks = {},
+    }
+    if not order then
+        Trace("no order open for partner")
+        return
+    end
+
+    local baseWanted = Trade.WantedFromOrder(order, ns.db.book)
+    ns.db.lastFill.baseWanted = CountsToString(baseWanted)
+
     local anyWanted = false
-    for _, q in pairs(wanted) do if q > 0 then anyWanted = true break end end
-    if not anyWanted then return end
+    for _, q in pairs(baseWanted) do if q > 0 then anyWanted = true break end end
+    if not anyWanted then
+        Trace("nothing wanted from the order")
+        return
+    end
 
-    local misses = {}
     local warned = {}
     local overWarned = {}
-    local lastSeen = {}
-    local pending = nil
+    local movedAny = false
 
-    -- A use() that lands is visible in the trade window on the next tick, so
-    -- one that never shows up is retried rather than counted as delivered.
-    -- MAX_MISSES stops that retry becoming an endless loop when an item
-    -- genuinely will not go in.
-    local MAX_MISSES = 3
+    -- A move takes a server round trip, which is longer than one tick. Only
+    -- one is allowed in flight at a time: issuing the next before the last
+    -- has left the bag re-used the same slot, and a slot whose item has since
+    -- gone holds something else, so the second use could trade the wrong
+    -- item entirely. Cut gems never stack, so a four-gem order is four
+    -- separate slots and four separate round trips.
+    local inFlight = nil
+    local skip = {}
+
+    -- Reporting is driven off what is owed, so it is said once per situation
+    -- rather than every tick. When mats land and the number owed changes,
+    -- the situation is new and worth speaking up about again.
+    local lastSig, said = nil, false
+    local function Signature(t)
+        local parts = {}
+        for id, q in pairs(t) do parts[#parts + 1] = id .. "x" .. q end
+        table.sort(parts)
+        return table.concat(parts, ",")
+    end
+
+    -- How many ticks to wait for a move to show up in the window before
+    -- giving up on that slot. Generous on purpose: giving up early is the
+    -- bug this whole path keeps hitting, and a slow move is far more likely
+    -- than an impossible one.
+    local MAX_WAIT = 14
 
     -- One per tick, re-scanning bags fresh each time. Adding items in a
     -- single frame bugs the trade UI, and a stale scan is what caused the
     -- original "stops after 1 or 2" bug.
     Trade.fillTicker = C_Timer.NewTicker(0.15, function()
         if not TradeFrame or not TradeFrame:IsShown() then
+            Trace("trade window gone")
             Trade.StopFill()
             return
         end
 
         local outgoing = OutgoingCounts()
 
-        -- Did the previous tick's use() actually land? Only a use that moved
-        -- nothing counts against the retry budget, so an order legitimately
-        -- needing several separate stacks of one gem is never cut short.
-        if pending then
-            local now = outgoing[pending] or 0
-            if now <= (lastSeen[pending] or 0) then
-                misses[pending] = (misses[pending] or 0) + 1
+        -- Wait for the move in flight to show up in the window before doing
+        -- anything else, so each gem gets its own round trip.
+        if inFlight then
+            local now = outgoing[inFlight.itemID] or 0
+            if now > inFlight.before then
+                Trace("landed", { itemID = inFlight.itemID, out = now })
+                inFlight = nil
             else
-                misses[pending] = 0
+                inFlight.ticks = inFlight.ticks + 1
+                if inFlight.ticks < MAX_WAIT then
+                    return
+                end
+                -- That slot will not move. Skip it so the loop moves on to
+                -- the next one rather than retrying it forever.
+                Trace("gave up on slot", { bag = inFlight.bag,
+                                           slot = inFlight.slot,
+                                           itemID = inFlight.itemID })
+                if not warned[inFlight.itemID] then
+                    warned[inFlight.itemID] = true
+                    ns.Print(string.format(
+                        "|cffff9900%s would not go into the trade. "
+                        .. "Drag it in by hand.|r", NameOf(inFlight.itemID)))
+                end
+                skip[inFlight.bag .. ":" .. inFlight.slot] = true
+                inFlight = nil
             end
-            pending = nil
         end
 
+        -- Recomputed every tick. The customer can drop their stones in at any
+        -- point while the window is open, and that is what says how many cuts
+        -- they actually want.
+        local wanted = Trade.WantedWithMats(baseWanted, IncomingCounts(),
+                                            order, ns.db.book)
         local short = Trade.StillWanted(wanted, outgoing)
 
-        -- Anything past its retry budget is reported once and then left
-        -- alone, so one stubborn gem cannot stall the rest of the order.
-        for id in pairs(short) do
-            if (misses[id] or 0) >= MAX_MISSES then
-                if not warned[id] then
-                    warned[id] = true
-                    ns.Print(string.format(
-                        "|cffff9900could not add %s to the trade. Drag it in by hand.|r",
-                        NameOf(id)))
-                end
-                short[id] = nil
-            end
+        local sig = Signature(wanted)
+        if sig ~= lastSig then
+            lastSig, said = sig, false
         end
 
+        -- A slot that would not move is dropped from consideration, so one
+        -- stubborn gem cannot stall the rest of the order.
+        local bags = {}
+        local held = {}
+        for _, r in ipairs(BagSnapshot()) do
+            local key = r.bag .. ":" .. r.slot
+            if not skip[key] then bags[#bags + 1] = r end
+            if wanted[r.itemID] then
+                held[#held + 1] = string.format("b%d.s%d=%dx%d%s",
+                    r.bag, r.slot, r.itemID, r.count,
+                    skip[key] and "(skip)" or "")
+            end
+        end
+        -- Only while something is still owed. Once the order is filled the
+        -- loop idles until the window closes, and those ticks would other-
+        -- wise flood out the part worth reading.
+        if next(short) then
+            Trace("tick", {
+                outgoing = CountsToString(outgoing),
+                incoming = CountsToString(IncomingCounts()),
+                wanted = CountsToString(wanted),
+                short = CountsToString(short),
+                bags = table.concat(held, " "),
+                freeSlots = FreeTradeSlots(),
+            })
+        end
+
+        -- The ticker runs until the window closes rather than stopping at the
+        -- first satisfied moment, so mats added later still top the trade up.
         if not next(short) then
-            Trade.StopFill()
-            ReportFill(order, wanted, nil)
+            if not said then
+                said = true
+                Trace("satisfied")
+                ReportFill(order, wanted, nil, false, movedAny)
+            end
             return
         end
 
         if FreeTradeSlots() <= 0 then
-            Trade.StopFill()
-            ReportFill(order, wanted, short, true)
+            if not said then
+                said = true
+                Trace("trade slots full")
+                ReportFill(order, wanted, short, true, movedAny)
+            end
             return
         end
 
-        local row = Trade.NextFillSlot(short, BagSnapshot())
+        local row = Trade.NextFillSlot(short, bags)
         if not row then
-            Trade.StopFill()
-            ReportFill(order, wanted, short)
+            if not said then
+                said = true
+                Trace("nothing in bags to fill with")
+                ReportFill(order, wanted, short, false, movedAny)
+            end
             return
         end
 
@@ -350,9 +509,17 @@ function Trade.AutoFill()
                     row.link, row.count, still))
             end
 
-            lastSeen[row.itemID] = outgoing[row.itemID] or 0
-            pending = row.itemID
+            movedAny = true
+            inFlight = {
+                itemID = row.itemID, bag = row.bag, slot = row.slot,
+                before = outgoing[row.itemID] or 0, ticks = 0,
+            }
+            Trace("use", { bag = row.bag, slot = row.slot,
+                           itemID = row.itemID, count = row.count,
+                           had = inFlight.before })
             useItem(row.bag, row.slot)
+        else
+            Trace("no container use API")
         end
     end)
 end

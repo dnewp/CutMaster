@@ -151,10 +151,17 @@ ns.Defaults = {
             canCutGuards = { "who", "anyone", "any1", "anybody", "someone", "jc" },
             -- Paired with a question mark, these mean "are you able to supply
             -- this", which is owed a direct answer.
+            -- Appended to, never reordered: these reach an existing install by
+            -- index, so inserting in the middle would rewrite saved entries.
             askPhrases = {
                 "do you have", "do u have", "you have", "do you got", "got",
                 "have you got", "can you cut", "can u cut", "able to cut",
                 "can you do", "do you do", "any chance", "you got",
+                -- Loheen asked 'Able to make "Inscribed Pyrestone"?' and got
+                -- no answer: every phrasing here said "cut", so asking with
+                -- "make" did not read as a question at all. We knew we lacked
+                -- the cut and told the user, but said nothing to the customer.
+                "able to make", "can you make", "can u make", "do you make",
             },
             weights = {
                 manyLinks = 3, designLink = 4, repeatBark = 5, shapeMatch = 2, canCut = 4,
@@ -371,6 +378,30 @@ local function HandleSlash(input)
             .. (s.orders.autoFillTrade and "|cff44ff44on|r" or "|cffff4444off|r"))
     elseif cmd == "stats" then
         ns.Stats.Toggle()
+    elseif cmd == "lastfill" then
+        local f = ns.db.lastFill
+        if not f then
+            ns.Print("no trade fill recorded yet.")
+        else
+            ns.Print(string.format(
+                "last fill: partner %s, order #%s (%s), wanted %s",
+                tostring(f.partner), tostring(f.orderID), tostring(f.status),
+                tostring(f.baseWanted)))
+            for _, t in ipairs(f.ticks or {}) do
+                if t.kind == "tick" then
+                    ns.Print(string.format(
+                        "  %d out[%s] in[%s] want[%s] short[%s] free=%s bags[%s]",
+                        t.n, t.outgoing, t.incoming, t.wanted, t.short,
+                        tostring(t.freeSlots), t.bags))
+                elseif t.kind == "use" then
+                    ns.Print(string.format(
+                        "  %d USE bag %d slot %d item %d stack %d (had %d out)",
+                        t.n, t.bag, t.slot, t.itemID, t.count, t.had or 0))
+                else
+                    ns.Print(string.format("  %d %s", t.n, t.kind))
+                end
+            end
+        end
     elseif cmd == "tracker" then
         ns.Tracker.Toggle()
     elseif cmd == "orders" then

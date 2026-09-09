@@ -714,6 +714,32 @@ T.Case("InferQuantities never adds a bind on pickup craft", function()
     T.Eq(#added, 0, "soulbound craft cannot be delivered, so not added")
 end)
 
+-- Razakelion asked for Stormy Empyrean Sapphire, a cut we do not know, and
+-- traded the stones for it. Three cuts we DO know take that stone, and one of
+-- them was picked by Lua table order and queued for delivery. Cutting the
+-- wrong gem is worse than asking which one they meant.
+T.Case("InferQuantities will not pick between cuts they never named", function()
+    -- 23436 is taken by both Bold and Runed Living Ruby in this book.
+    local o = orderFor({ 24028 })
+    local _, added, unclear = ns.Orders.InferQuantities(
+        o, { [23436] = 2 }, reagentBook())
+    T.Eq(#added, 0, "no cut invented for them")
+    T.Eq(#unclear, 1, "the stone is reported instead")
+    T.Eq(unclear[1], 23436, "and says which stone it was")
+    T.Eq(#o.items, 1, "the order is left as they gave it")
+end)
+
+T.Case("InferQuantities still adds when only one cut takes that stone", function()
+    -- 23440 is taken by Solid Star of Elune alone, so there is nothing to
+    -- guess at and adding it saves the user a step.
+    local o = orderFor({ 24033 })
+    local _, added, unclear = ns.Orders.InferQuantities(
+        o, { [23440] = 2 }, reagentBook())
+    T.Eq(#added, 1, "unambiguous, so still added")
+    T.Eq(added[1].itemID, 24028, "the only cut that fits")
+    T.Eq(#unclear, 0, "nothing to report")
+end)
+
 T.Case("Ledger.SumSince only counts recent entries", function()
     local entries = {
         { at = 1000, copper = 5000, gems = { [1] = 2 } },
@@ -821,6 +847,65 @@ T.Case("StillWanted ignores extras already in the window", function()
     T.Eq(left[50], nil, "over-delivered gem is not still wanted")
     T.Eq(left[60], 1, "the untouched gem still is")
     T.Eq(left[99], nil, "an item not on the order is not tracked")
+end)
+
+-- Mercyxqt's order read qty 1 while the trade was open and only became qty 2
+-- when the trade CLOSED and the mats were folded in. The fill runs on open,
+-- so a customer handing over stones and taking their cuts in one trade got
+-- one gem and the rest had to go in by hand. The stones in the window are
+-- the real count.
+local function matsBook()
+    return {
+        -- Luminous Noble Topaz, cut from one Noble Topaz.
+        [24060] = { itemID = 24060, name = "Luminous Noble Topaz", classID = 3,
+                    bindType = 0, match = true, aliases = {},
+                    reagents = { [23439] = 1 } },
+        -- A cut taking two stones per craft.
+        [70] = { itemID = 70, name = "Double Cut", classID = 3, bindType = 0,
+                 match = true, aliases = {}, reagents = { [23439] = 2 } },
+    }
+end
+
+T.Case("WantedWithMats raises the count to match stones in the window", function()
+    local order = { items = { { itemID = 24060, qty = 1 } } }
+    local wanted = ns.Trade.WantedWithMats({ [24060] = 1 }, { [23439] = 2 },
+                                           order, matsBook())
+    T.Eq(wanted[24060], 2, "two stones in the window means two cuts")
+end)
+
+T.Case("WantedWithMats divides by the stones each craft consumes", function()
+    local order = { items = { { itemID = 70, qty = 1 } } }
+    local wanted = ns.Trade.WantedWithMats({ [70] = 1 }, { [23439] = 6 },
+                                           order, matsBook())
+    T.Eq(wanted[70], 3, "six stones at two per craft is three cuts")
+end)
+
+T.Case("WantedWithMats never lowers what the order already asked for", function()
+    -- Mats handed over in an earlier trade are already counted in the order,
+    -- so an empty window must not wipe the quantity out.
+    local order = { items = { { itemID = 24060, qty = 3 } } }
+    local wanted = ns.Trade.WantedWithMats({ [24060] = 3 }, {}, order, matsBook())
+    T.Eq(wanted[24060], 3, "order quantity survives an empty window")
+
+    wanted = ns.Trade.WantedWithMats({ [24060] = 3 }, { [23439] = 1 },
+                                     order, matsBook())
+    T.Eq(wanted[24060], 3, "one stone this trade does not shrink the order")
+end)
+
+T.Case("WantedWithMats will not guess when two cuts take the same stone", function()
+    local order = { items = { { itemID = 24060, qty = 1 }, { itemID = 70, qty = 1 } } }
+    local wanted = ns.Trade.WantedWithMats({ [24060] = 1, [70] = 1 },
+                                           { [23439] = 4 }, order, matsBook())
+    T.Eq(wanted[24060], 1, "split is unknowable, left as the order had it")
+    T.Eq(wanted[70], 1, "same for the other cut")
+end)
+
+T.Case("WantedWithMats ignores stones for cuts not on the order", function()
+    local order = { items = { { itemID = 24060, qty = 1 } } }
+    local wanted = ns.Trade.WantedWithMats({ [24060] = 1 }, { [99999] = 5 },
+                                           order, matsBook())
+    T.Eq(wanted[24060], 1, "unrelated stones change nothing")
+    T.Eq(wanted[99999], nil, "and are never queued for delivery")
 end)
 
 T.Case("NextFillSlot handles multiple different gems in one order", function()
@@ -980,6 +1065,43 @@ T.Case("IsAvailabilityQuestion spots a direct question", function()
     T.Eq(q("got [Bold Crimson Spinel]?"), true, "got")
     T.Eq(q("can you cut this one?"), true, "can you cut")
     T.Eq(q("any chance you have a bold ruby?"), true, "any chance")
+end)
+
+-- Loheen whispered: Able to make "Inscribed Pyrestone"?
+-- A cut we do not know, asked as a plain question, and nothing was said back
+-- because every phrase in the list said "cut". The quotes around the gem are
+-- incidental: Normalize strips them.
+T.Case("IsAvailabilityQuestion spots a question asked with 'make'", function()
+    local function q(t) return ns.Util.IsAvailabilityQuestion(t, ns.Util.Normalize(t), ASK) end
+    T.Eq(q('Able to make "Inscribed Pyrestone"?'), true, "able to make")
+    T.Eq(q("can you make a bold living ruby?"), true, "can you make")
+    T.Eq(q("do you make solid star of elune?"), true, "do you make")
+end)
+
+-- Darreldeluxe whispered "inscribed pyrestone by chance?" and still got
+-- nothing, because the list had "any chance" and not "by chance". Adding one
+-- more phrase per customer was never going to converge, so in a whisper the
+-- question mark itself is the question.
+T.Case("A whisper with a question mark is a question, whatever the wording", function()
+    local function q(t)
+        return ns.Util.IsAvailabilityQuestion(t, ns.Util.Normalize(t), ASK, true)
+    end
+    T.Eq(q("inscribed pyrestone by chance?"), true, "by chance")
+    T.Eq(q("any shot at a bold living ruby?"), true, "wording we never listed")
+    T.Eq(q("hey whats up?"), true,
+        "no gem here either, but that is the caller's job to gate on")
+    T.Eq(q("i need a bold living ruby"), false, "no question mark, not a question")
+end)
+
+T.Case("Trade chat still needs an availability phrase, not just a ?", function()
+    -- The channel this guard was written for. Someone musing out loud in
+    -- Trade must not be answered with a pitch.
+    local function q(t)
+        return ns.Util.IsAvailabilityQuestion(t, ns.Util.Normalize(t), ASK, false)
+    end
+    T.Eq(q("why are so many cuts less expensive than these days?"), false,
+        "thinking out loud is not a request")
+    T.Eq(q("do you have bold living ruby?"), true, "a listed phrase still counts")
 end)
 
 T.Case("IsAvailabilityQuestion ignores someone thinking out loud", function()

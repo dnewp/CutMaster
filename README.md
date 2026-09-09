@@ -176,6 +176,7 @@ An order starts **pending** the moment someone is invited, and only counts as op
 | `/cm debug` | Print every decision as it happens |
 | `/cm capture` | Record every Trade message and its verdict |
 | `/cm clearcapture` | Empty the capture buffer |
+| `/cm lastfill` | Replay what the last trade fill saw, tick by tick |
 | `/cm test` | Run the self test |
 
 ---
@@ -206,6 +207,8 @@ Everything lives in `CutMasterDB`, per character, editable in game.
 If it invites someone it should not, open the **Log** tab. Every decision shows the signals that fired and their weights, so you can see whether the matcher or the classifier was at fault. Add a word to the veto list in the **Filter** tab and it will not happen again.
 
 If it misses a real customer, `/cm capture` records every Trade message including the ones it ignored, which is the only way to see what it never noticed.
+
+If the trade window fills wrongly, `/cm lastfill` replays the last one tick by tick: what was in the window, what was in your bags, what it still thought it owed, and where it stopped. A trade happens too fast to watch and leaves nothing behind, so this is the only way to tell an item that would not move from one it never tried.
 
 The settings most worth knowing:
 

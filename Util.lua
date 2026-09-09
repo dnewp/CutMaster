@@ -52,7 +52,7 @@ end
 -- cuts cheaper than [Crimson Spinel]" does not: it is someone thinking out
 -- loud, and replying to it is talking over the user. A question mark plus an
 -- availability phrase separates the two.
-function Util.IsAvailabilityQuestion(raw, norm, phrases)
+function Util.IsAvailabilityQuestion(raw, norm, phrases, isDirect)
     if not raw or not raw:find("?", 1, true) then return false end
 
     -- A shift-clicked gem link with a trailing "?" and no typed words at all
@@ -62,6 +62,18 @@ function Util.IsAvailabilityQuestion(raw, norm, phrases)
     if raw:find("|Hitem:", 1, true) and raw:match("%?%s*$") then
         return true
     end
+
+    -- In a WHISPER the phrase list stops earning its keep. It exists to tell a
+    -- real request from someone musing in a busy channel, and nobody whispers
+    -- a stranger to muse about gem prices. Every phrasing that went unanswered
+    -- was a customer asking us plainly -- "Able to make X?", "X by chance?" --
+    -- and each time the answer was to add one more phrase, which only ever
+    -- covered that one wording. A question mark in a whisper is the question.
+    --
+    -- This does not open the floodgates: the caller still only replies when
+    -- the message named a gem or family we recognise, so "hey whats up?" gets
+    -- nothing because there is nothing to answer, not because of the wording.
+    if isDirect then return true end
 
     for _, p in ipairs(phrases or {}) do
         if Util.HasPhrase(norm, p) then return true end

@@ -169,6 +169,7 @@ end
 function Orders.InferQuantities(order, matsReceived, book)
     local needsSplit = false
     local added = {}
+    local unclear = {}
 
     for rawID, count in pairs(matsReceived) do
         -- Which of the cuts they asked for consume this raw gem?
@@ -192,27 +193,39 @@ function Orders.InferQuantities(order, matsReceived, book)
                 it.qtySource = "ambiguous"
             end
         else
-            -- Mats for something they never asked for. People change their
-            -- mind at the trade window constantly, so add it.
+            -- Mats for a cut they never asked for. People change their mind
+            -- at the trade window constantly, so one unambiguous candidate is
+            -- worth adding on their behalf.
+            --
+            -- Several candidates is a coin flip, and it was being decided by
+            -- Lua table order: Razakelion handed over Empyrean Sapphires for
+            -- a Stormy cut we do not know, and two Lustrous were queued for
+            -- delivery instead. Cutting the wrong gem is worse than asking,
+            -- so this now reports the stone and leaves the choice alone.
+            local only, n = nil, 0
             for cutID, entry in pairs(book) do
                 if entry.reagents and entry.reagents[rawID] and entry.bindType ~= 1 then
-                    local per = entry.reagents[rawID] or 1
-                    local item = {
-                        itemID = cutID,
-                        qty = math.floor(count / per),
-                        qtySource = "mats",
-                        unrequested = true,
-                    }
-                    order.items[#order.items + 1] = item
-                    added[#added + 1] = item
-                    break
+                    only, n = cutID, n + 1
                 end
+            end
+            if n == 1 then
+                local per = book[only].reagents[rawID] or 1
+                local item = {
+                    itemID = only,
+                    qty = math.floor(count / per),
+                    qtySource = "mats",
+                    unrequested = true,
+                }
+                order.items[#order.items + 1] = item
+                added[#added + 1] = item
+            elseif n > 1 then
+                unclear[#unclear + 1] = rawID
             end
         end
     end
 
     order.needsSplit = needsSplit
-    return needsSplit, added
+    return needsSplit, added, unclear
 end
 
 --------------------------------------------------------------------------------

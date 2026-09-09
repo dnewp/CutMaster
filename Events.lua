@@ -220,7 +220,7 @@ function Events.Process(text, author, source, opts)
 
         else
             local asked = ns.Util.IsAvailabilityQuestion(
-                text, norm, ns.db.settings.filter.askPhrases)
+                text, norm, ns.db.settings.filter.askPhrases, isDirect)
             local mayReply = w.enabled and w.autoReply
                 and (w.autoSuggest or (asked and w.answerQuestions))
 
