@@ -439,8 +439,13 @@ local function HandleSlash(input)
         elseif sub == "removeitem" then
             local id, name = arg:match("^(%S+)%s+(.+)$")
             local o = id and ns.Orders.ByID(tonumber(id))
-            if not o then
+            if not id then
                 ns.Print("usage: /cm order removeitem <id> <gem name>")
+            elseif not o then
+                -- The arguments parsed fine; the id is simply not an order.
+                -- Repeating the usage line here sent people hunting for a
+                -- typo in a command they had written correctly.
+                ns.Print("no order with that id.")
             else
                 local itemID = ns.Orders.FindItemByName(o, name)
                 if not itemID then
@@ -623,7 +628,7 @@ local function HandleSlash(input)
         ns.Print("  /cm invite, /cm invite whisperonly, /cm log, /cm debug, /cm capture, /cm clearcapture,")
         ns.Print("  /cm orders, /cm order add|done|cancel, /cm tracker, /cm income,")
         ns.Print("  /cm stats,")
-        ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test,")
+        ns.Print("  /cm clearflags, /cm out [n], /cm status, /cm test, /cm lastfill,")
         ns.Print("  /cm disable, /cm enable")
     end
 end

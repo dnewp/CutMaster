@@ -239,7 +239,7 @@ function Tracker.Refresh()
         local head = GetRow(used)
         head.check:Hide()
         head.text:SetPoint("LEFT", 2, 0)
-        head.text:SetText(string.format("|cffaaaaaa%s|r  %s",
+        head.text:SetText(string.format("|cff888888%s|r  %s",
             o.player, STATUS_SHORT.pending))
         head:SetScript("OnMouseUp", function(_, button)
             if button ~= "RightButton" then return end

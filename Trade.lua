@@ -397,6 +397,23 @@ function Trade.AutoFill()
             return
         end
 
+        -- Both of these were unreachable when the loop stopped as soon as it
+        -- was satisfied. Now that it watches until the window closes, it can
+        -- outlive the reasons it was started: hitting /cm disable mid-trade,
+        -- or cancelling the order in the Tracker, must stop it putting more
+        -- gems in.
+        if not ns.Enabled() then
+            Trace("addon disabled mid-trade")
+            Trade.StopFill()
+            return
+        end
+
+        if order.status == "done" or order.status == "cancelled" then
+            Trace("order closed mid-trade", { status = order.status })
+            Trade.StopFill()
+            return
+        end
+
         local outgoing = OutgoingCounts()
 
         -- Wait for the move in flight to show up in the window before doing

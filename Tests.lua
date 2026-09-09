@@ -1191,22 +1191,52 @@ T.Case("ExpireStale cancels a pending order nobody joined for in time", function
     ns.db.orders = saved
 end)
 
-T.Case("CancelPending closes an order for someone who declined", function()
+-- Found reviewing the port of this logic into TradeMaster: the guard lived
+-- only in the caller, so calling this directly with no timeout reads as
+-- "older than nothing" and cancels every pending order on sight.
+T.Case("ExpireStale with no timeout cancels nothing", function()
     local saved = ns.db.orders
+    ns.db.orders = {
+        { id = 1, player = "A", status = "pending", createdAt = 1000, items = {} },
+    }
+    T.Eq(#ns.Orders.ExpireStale(2000, 0), 0, "zero is not a timeout of zero seconds")
+    T.Eq(#ns.Orders.ExpireStale(2000, nil), 0, "nor is a missing one")
+    T.Eq(ns.Orders.ByID(1).status, "pending", "order untouched")
+    ns.db.orders = saved
+end)
+
+-- The master switch is pinned rather than assumed: these would otherwise
+-- pass or fail depending on whether /cm disable happened to be on when the
+-- suite was run.
+T.Case("CancelPending closes an order for someone who declined", function()
+    local saved, wasOn = ns.db.orders, ns.db.settings.enabled
+    ns.db.settings.enabled = true
     ns.db.orders = { { id = 1, player = "Goopyfloyd", status = "pending", items = {} } }
     local o = ns.Orders.CancelPending("Goopyfloyd", 5000)
     T.Eq(o.status, "cancelled", "declined order is cancelled")
     T.Eq(ns.Orders.Open("Goopyfloyd"), nil, "no longer open")
-    ns.db.orders = saved
+    ns.db.orders, ns.db.settings.enabled = saved, wasOn
 end)
 
 T.Case("CancelPending leaves an order alone once they have actually grouped", function()
-    local saved = ns.db.orders
+    local saved, wasOn = ns.db.orders, ns.db.settings.enabled
+    ns.db.settings.enabled = true
     ns.db.orders = { { id = 1, player = "Goopyfloyd", status = "grouped", items = {} } }
     local o = ns.Orders.CancelPending("Goopyfloyd", 5000)
     T.Eq(o, nil, "grouped orders are not what CancelPending touches")
     T.Eq(ns.Orders.ByID(1).status, "grouped", "unchanged")
-    ns.db.orders = saved
+    ns.db.orders, ns.db.settings.enabled = saved, wasOn
+end)
+
+-- A decline arriving while the addon is switched off must not quietly close
+-- an order, the same as every other automatic order change.
+T.Case("CancelPending does nothing while the addon is disabled", function()
+    local saved, wasOn = ns.db.orders, ns.db.settings.enabled
+    ns.db.settings.enabled = false
+    ns.db.orders = { { id = 1, player = "Goopyfloyd", status = "pending", items = {} } }
+    T.Eq(ns.Orders.CancelPending("Goopyfloyd", 5000), nil, "no order touched")
+    T.Eq(ns.Orders.ByID(1).status, "pending", "still pending")
+    ns.db.orders, ns.db.settings.enabled = saved, wasOn
 end)
 
 T.Case("DeclinedName reads a player out of the system decline message", function()

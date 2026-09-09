@@ -292,6 +292,11 @@ end
 -- is not the same problem and should not be auto-cancelled out from under
 -- them.
 function Orders.ExpireStale(now, timeoutSec)
+    -- Without this, a timeout of zero reads as "older than nothing" and
+    -- cancels every pending order on sight. The caller checks too, but the
+    -- rule belongs with the arithmetic that depends on it.
+    if not timeoutSec or timeoutSec <= 0 then return {} end
+
     local expired = {}
     for _, o in ipairs(ns.db.orders) do
         if o.status == "pending" and (now - o.createdAt) >= timeoutSec then
@@ -305,6 +310,9 @@ end
 -- Declining is a faster, explicit version of the same thing: no need to wait
 -- out the timeout once they have said no outright.
 function Orders.CancelPending(player, now)
+    -- Same master switch every other automatic order change respects. A
+    -- decline arriving while the addon is off must not quietly close orders.
+    if not ns.Enabled() then return nil end
     local o = Orders.Open(player)
     if o and o.status == "pending" then
         Orders.SetStatus(o, "cancelled", now)
@@ -334,6 +342,9 @@ end
 -- being wasteful.
 local POLL_INTERVAL = 60
 
+-- Above this many expiring at once, say it in one line instead of a wall.
+local MAX_EXPIRY_LINES = 5
+
 function Orders.Poll()
     if not ns.Enabled() then return end
     local timeout = ns.db.settings.orders.pendingTimeoutSec
@@ -341,6 +352,18 @@ function Orders.Poll()
 
     local now = GetServerTime and GetServerTime() or time()
     local expired = Orders.ExpireStale(now, timeout)
+
+    -- Naming each one is useful for the odd no-show. A backlog of them all
+    -- ageing out at once, which is what happens after a long break, is a wall
+    -- of chat saying the same thing, so past a handful it is one line.
+    if #expired > MAX_EXPIRY_LINES then
+        ns.Print(string.format(
+            "|cff888888%d pending orders expired, nobody joined within %d min.|r",
+            #expired, math.floor(timeout / 60)))
+        if ns.Tracker then ns.Tracker.Refresh() end
+        return
+    end
+
     for _, o in ipairs(expired) do
         ns.Print(string.format(
             "|cff888888order #%d for %s expired, never joined within %d min.|r",
